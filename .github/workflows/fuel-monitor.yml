@@ -1,0 +1,43 @@
+name: fuel-monitor
+
+# Запускается по расписанию (каждые 15 минут) и вручную.
+# ВАЖНО для бесплатного тарифа: в приватном репозитории лимит ~2000 мин/мес,
+# поэтому */15 подходит только для публичного репозитория. Для приватного
+# поставьте */30 * * * * (каждые 30 мин), чтобы уложиться в лимит.
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Опрос заправок
+        env:
+          FUELWATCH_LAT: ${{ vars.LAT }}
+          FUELWATCH_LON: ${{ vars.LON }}
+          FUELWATCH_RADIUS: ${{ vars.RADIUS }}
+          FUELWATCH_FUEL: ${{ vars.FUEL }}
+          FUELWATCH_TOPIC: ${{ vars.TOPIC }}
+          FUELWATCH_STATE: state.json
+        run: python3 monitor/fuel_watch.py once
+
+      - name: Сохранить состояние
+        run: |
+          git config user.name "fuel-bot"
+          git config user.email "fuel-bot@users.noreply.github.com"
+          if [ -n "$(git status --porcelain state.json)" ]; then
+            git add state.json
+            git commit -m "chore: обновить состояние заправок"
+            git push
+          fi

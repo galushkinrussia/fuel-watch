@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Точка наблюдения"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/latInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="numberDecimal"
+            android:hint="Широта (lat)" />
+
+        <EditText
+            android:id="@+id/lonInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="numberDecimal"
+            android:hint="Долгота (lon)" />
+
+        <EditText
+            android:id="@+id/radiusInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="numberDecimal"
+            android:hint="Радиус, км" />
+
+        <EditText
+            android:id="@+id/intervalInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="number"
+            android:hint="Интервал опроса, сек" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Марки топлива"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <CheckBox
+                android:id="@+id/fuel92"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="АИ-92" />
+
+            <CheckBox
+                android:id="@+id/fuel95"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="АИ-95" />
+
+            <CheckBox
+                android:id="@+id/fuel98"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="АИ-98" />
+
+            <CheckBox
+                android:id="@+id/fuel100"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="АИ-100" />
+
+            <CheckBox
+                android:id="@+id/fuelDT"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="ДТ" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/toggleButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="Старт" />
+
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textSize="14sp" />
+    </LinearLayout>
+</ScrollView>

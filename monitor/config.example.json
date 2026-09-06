@@ -1,0 +1,10 @@
+{
+  "lat": 48.680,
+  "lon": 44.470,
+  "radius": 8,
+  "fuel": ["92", "95"],
+  "topic": "my-fuel-topic",
+  "interval": 180,
+  "tg_token": "",
+  "tg_chat": ""
+}
