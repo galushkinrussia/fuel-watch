@@ -1,7 +1,6 @@
 __pycache__/
 *.pyc
 monitor/state.json
-state.json
 monitor.log
 *.apk
 android/.gradle/
