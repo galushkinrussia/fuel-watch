@@ -91,15 +91,29 @@ def station_label(s):
     return f"{s.get('brand') or s.get('name') or 'АЗС'} · {s.get('addr') or 'без адреса'}"
 
 
-def send_ntfy(topic, title, message, priority="high", tags="fuel"):
+def station_map_url(s):
+    """Ссылка на Яндекс.Карты с точкой заправки (по координатам, иначе по адресу)."""
+    lat, lon = s.get("lat"), s.get("lon")
+    if lat is not None and lon is not None:
+        return f"https://yandex.ru/maps/?pt={lon},{lat}&z=17"
+    addr = s.get("addr")
+    if addr:
+        return "https://yandex.ru/maps/?text=" + urllib.parse.quote(addr)
+    return ""
+
+
+def send_ntfy(topic, title, message, priority="high", tags="fuel", click=None):
+    headers = {
+        "Title": title.encode("utf-8"),
+        "Priority": priority,
+        "Tags": tags,
+    }
+    if click:
+        headers["Click"] = click.encode("utf-8")
     req = urllib.request.Request(
         f"https://ntfy.sh/{urllib.parse.quote(topic)}",
         data=message.encode("utf-8"),
-        headers={
-            "Title": title.encode("utf-8"),
-            "Priority": priority,
-            "Tags": tags,
-        },
+        headers=headers,
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=15) as r:
@@ -141,11 +155,11 @@ class Monitor:
         with open(self.state_file, "w", encoding="utf-8") as f:
             json.dump(self.state, f, ensure_ascii=False, indent=2)
 
-    def _notify(self, text):
+    def _notify(self, text, click=None):
         print(f"[NOTIFY] {text}")
         if self.ntfy_topic:
             try:
-                send_ntfy(self.ntfy_topic, "⛽ Бензин появился", text)
+                send_ntfy(self.ntfy_topic, "⛽ Бензин появился", text, click=click)
                 print("  -> ntfy ok")
             except Exception as e:
                 print(f"  -> ntfy FAIL: {e}")
@@ -165,7 +179,11 @@ class Monitor:
             prev = self.state.get(str(osm), {}).get("avail")
             if avail and prev is False:
                 fuels = ", ".join(sorted(station_fuels(s))) or "?"
-                self._notify(f"{station_label(s)}\n{fuels}\n{s.get('detail') or ''}".strip())
+                map_url = station_map_url(s)
+                text = f"{station_label(s)}\n{fuels}\n{s.get('detail') or ''}".strip()
+                if map_url:
+                    text += f"\n{map_url}"
+                self._notify(text, click=map_url or None)
             elif avail and prev is None:
                 pass  # впервые видим с топливом — фиксируем без уведомления
             elif not avail and prev:
