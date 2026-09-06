@@ -1,0 +1,41 @@
+name: chat-monitor
+
+# Релей городского чата водителей gdebenz.ru в ntfy.
+# Запускается каждые 5 минут и вручную. Публичный репозиторий — без лимита минут.
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Опрос чата
+        env:
+          CHATWATCH_CITY: ${{ vars.CHAT_CITY }}
+          CHATWATCH_TOPIC: ${{ vars.CHAT_TOPIC }}
+          CHATWATCH_STATE: chat_state.json
+        run: python3 monitor/chat_watch.py once
+
+      - name: Сохранить состояние
+        run: |
+          git config user.name "fuel-bot"
+          git config user.email "fuel-bot@users.noreply.github.com"
+          if [ -n "$(git status --porcelain chat_state.json)" ]; then
+            git add chat_state.json
+            git commit -m "chore: обновить состояние чата"
+            for i in 1 2 3 4 5; do
+              git pull --rebase origin main && git push && break
+              sleep 3
+            done
+          fi

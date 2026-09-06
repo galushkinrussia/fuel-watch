@@ -40,5 +40,8 @@ jobs:
           if [ -n "$(git status --porcelain state.json)" ]; then
             git add state.json
             git commit -m "chore: обновить состояние заправок"
-            git push
+            for i in 1 2 3 4 5; do
+              git pull --rebase origin main && git push && break
+              sleep 3
+            done
           fi
