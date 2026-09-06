@@ -4,9 +4,9 @@ name: chat-monitor
 # Запускается каждые 5 минут и вручную. Публичный репозиторий — без лимита минут.
 # (перерегистрация cron-расписания, ver 2)
 on:
+  workflow_dispatch:
   schedule:
-    - cron: '*/5 * * * *'
-  workflow_dispatch: {}
+    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 * * * *'
 
 permissions:
   contents: write

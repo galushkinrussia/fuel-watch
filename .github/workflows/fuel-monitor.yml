@@ -6,9 +6,9 @@ name: fuel-monitor
 # поэтому */15 подходит только для публичного репозитория. Для приватного
 # поставьте */30 * * * * (каждые 30 мин), чтобы уложиться в лимит.
 on:
+  workflow_dispatch:
   schedule:
-    - cron: '*/15 * * * *'
-  workflow_dispatch: {}
+    - cron: '0,15,30,45 * * * *'
 
 permissions:
   contents: write
