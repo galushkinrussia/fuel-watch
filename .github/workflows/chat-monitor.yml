@@ -1,12 +1,10 @@
 name: chat-monitor
 
 # Релей городского чата водителей gdebenz.ru в ntfy.
-# Запускается каждые 5 минут и вручную. Публичный репозиторий — без лимита минут.
-# (перерегистрация cron-расписания, ver 2)
+# Запускается только вручную (workflow_dispatch) — из внешнего cron (cron-job.org).
+# Встроенное расписание GitHub отключено (троттлилось).
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 * * * *'
 
 permissions:
   contents: write
