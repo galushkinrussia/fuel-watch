@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Релей сообщений городского чата gdebenz.ru в ntfy.
+"""Часовая сводка городского чата gdebenz.ru в ntfy.
 
-Опрашивает открытый эндпоинт чата и шлёт push-уведомление на каждое новое
-сообщение водителей города.
+Собирает новые сообщения чата водителей города и шлёт ОДНО push-уведомление
+(сводку) за период вместо спама отдельными сообщениями. Предназначен для
+запуска раз в час из внешнего cron.
 
 Зависимости: только стандартная библиотека Python 3.
 
 Использование:
   python3 chat_watch.py once --city volgograd --topic mytopic --state chat_state.json
 
-Параметры можно задавать переменными окружения: CHATWATCH_CITY, CHATWATCH_TOPIC,
-CHATWATCH_STATE, CHATWATCH_LIMIT.
+Параметры: CHATWATCH_CITY, CHATWATCH_TOPIC, CHATWATCH_STATE, CHATWATCH_LIMIT.
 """
 
 import argparse
@@ -26,17 +26,52 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 DEFAULT_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chat_state.json")
 
+# макс. размер тела сводки (символов). Кириллица = 2 байта/символ, а ntfy
+# превращает в файл всё, что больше 4096 байт, поэтому держим запас.
+MAX_BODY = 1800
+# обрезка текста одного сообщения
+BODY_LIMIT = 80
 
-def fetch_messages(city, limit=30, timeout=15):
-    url = f"{API}/api/chats/city/{urllib.parse.quote(city)}/messages?limit={limit}"
+
+def _get_json(url, timeout=15):
     req = urllib.request.Request(url, headers={
         "User-Agent": UA,
         "Accept": "application/json",
         "Referer": "https://gdebenz.ru/",
     })
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        data = json.loads(r.read().decode("utf-8"))
-    return data.get("messages", [])
+        return json.loads(r.read().decode("utf-8"))
+
+
+def fetch_page(city, cursor=None, limit=30):
+    url = f"{API}/api/chats/city/{urllib.parse.quote(city)}/messages?limit={limit}"
+    if cursor:
+        url += f"&cursor={cursor}"
+    return _get_json(url)
+
+
+def fetch_new_messages(city, last_id, max_pages=10, limit=30):
+    """Возвращает (все_сообщения, новые) — новые отсортированы от старых к новым."""
+    if not last_id:
+        data = fetch_page(city, limit=limit)
+        all_msgs = data.get("messages", [])
+    else:
+        all_msgs = []
+        cursor = None
+        for _ in range(max_pages):
+            data = fetch_page(city, cursor=cursor, limit=limit)
+            msgs = data.get("messages", [])
+            if not msgs:
+                break
+            all_msgs.extend(msgs)
+            if any(int(m.get("id", 0)) <= last_id for m in msgs):
+                break
+            cursor = data.get("next_cursor")
+            if not cursor:
+                break
+    new = [m for m in all_msgs if int(m.get("id", 0)) > last_id]
+    new.sort(key=lambda m: int(m["id"]), reverse=True)  # свежие первыми
+    return all_msgs, new
 
 
 def send_ntfy(topic, title, message, click=None):
@@ -57,6 +92,32 @@ def send_ntfy(topic, title, message, click=None):
         return r.status == 200
 
 
+def build_summary(messages):
+    lines = []
+    for m in messages:
+        author = m.get("author_name") or "Водитель"
+        body = " ".join((m.get("body") or "").split())
+        if len(body) > BODY_LIMIT:
+            body = body[:BODY_LIMIT - 1] + "…"
+        lines.append(f"• {author}: {body}")
+
+    text = "\n".join(lines)
+    if len(text) <= MAX_BODY:
+        return text
+
+    keep, total = [], 0
+    for line in lines:
+        if total + len(line) + 1 > MAX_BODY:
+            break
+        keep.append(line)
+        total += len(line) + 1
+    omitted = len(messages) - len(keep)
+    text = "\n".join(keep)
+    if omitted > 0:
+        text += f"\n…и ещё {omitted} сообщ."
+    return text
+
+
 def load_state(state_file):
     if os.path.exists(state_file):
         try:
@@ -72,53 +133,42 @@ def save_state(state_file, state):
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
-def message_text(m):
-    text = (m.get("body") or "").strip()
-    if m.get("reply_to_name"):
-        excerpt = (m.get("reply_to_excerpt") or "").strip()
-        text += f"\n↪ {m['reply_to_name']}" + (f": {excerpt}" if excerpt else "")
-    return text
-
-
-def poll(city, topic, state_file, limit=30):
-    messages = fetch_messages(city, limit=limit)
+def poll(city, topic, state_file):
     state = load_state(state_file)
     last_id = int(state.get("last_id", 0) or 0)
 
-    new = [m for m in messages if int(m.get("id", 0)) > last_id]
-    new.sort(key=lambda m: int(m["id"]))  # хронологически: от старых к новым
+    all_msgs, new = fetch_new_messages(city, last_id)
+    newest_id = max((int(m.get("id", 0)) for m in all_msgs), default=last_id)
 
     if not last_id:
         print(f"[{time.strftime('%H:%M:%S')}] Первый опрос: фиксирую базу "
-              f"({len(messages)} сообщений в кеше), без уведомлений.")
+              f"({len(all_msgs)} сообщ. в кеше), без уведомлений.")
+    elif new:
+        n = len(new)
+        text = build_summary(new)
+        title = f"💬 Чат водителей · {n} сообщ."
+        try:
+            send_ntfy(topic, title, text, click=f"https://gdebenz.ru/chat/{urllib.parse.quote(city)}")
+            print(f"[{time.strftime('%H:%M:%S')}] Сводка отправлена ({n} сообщ.)")
+        except Exception as e:
+            print(f"  -> ntfy FAIL: {e}")
     else:
-        print(f"[{time.strftime('%H:%M:%S')}] Новых сообщений: {len(new)}")
-        for m in new:
-            author = m.get("author_name") or "Водитель"
-            text = message_text(m)
-            title = f"💬 {author}"
-            try:
-                send_ntfy(topic, title, text, click=f"https://gdebenz.ru/chat/{urllib.parse.quote(city)}")
-                print(f"  -> ntfy ok ({author})")
-            except Exception as e:
-                print(f"  -> ntfy FAIL: {e}")
+        print(f"[{time.strftime('%H:%M:%S')}] Нет новых сообщений.")
 
-    if messages:
-        state["last_id"] = max(int(m.get("id", 0)) for m in messages)
+    state["last_id"] = newest_id
     state["city"] = city
     state["updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
     save_state(state_file, state)
 
 
 def main():
-    p = argparse.ArgumentParser(description="Релей чата водителей gdebenz.ru в ntfy")
+    p = argparse.ArgumentParser(description="Часовая сводка чата gdebenz.ru в ntfy")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    op = sub.add_parser("once", help="один опрос чата (для cron/облака)")
+    op = sub.add_parser("once", help="одна сводка (для cron/облака)")
     op.add_argument("--city", help="slug города (напр. volgograd)")
     op.add_argument("--topic", help="ntfy.sh тема для push")
     op.add_argument("--state", default=DEFAULT_STATE_FILE, help="файл состояния")
-    op.add_argument("--limit", type=int, default=30)
     op.set_defaults(func=cmd_once)
 
     args = p.parse_args()
@@ -134,9 +184,9 @@ def cmd_once(args):
         print("Ошибка: не задана тема ntfy (--topic или CHATWATCH_TOPIC)", file=sys.stderr)
         return 2
     try:
-        poll(args.city, args.topic, args.state, limit=args.limit)
+        poll(args.city, args.topic, args.state)
     except Exception as e:
-        print(f"Ошибка опроса чата: {e}")
+        print(f"Ошибка сводки чата: {e}")
         return 1
     return 0
 
@@ -153,7 +203,6 @@ def _env_override(args):
     apply("city", "CHATWATCH_CITY", str)
     apply("topic", "CHATWATCH_TOPIC", str)
     apply("state", "CHATWATCH_STATE", str)
-    apply("limit", "CHATWATCH_LIMIT", int)
 
 
 if __name__ == "__main__":
