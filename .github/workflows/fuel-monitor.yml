@@ -31,14 +31,15 @@ jobs:
           FUELWATCH_FUEL: ${{ vars.FUEL }}
           FUELWATCH_TOPIC: ${{ vars.TOPIC }}
           FUELWATCH_STATE: state.json
+          FUELWATCH_HISTORY: history.jsonl
         run: python3 monitor/fuel_watch.py once
 
       - name: Сохранить состояние
         run: |
           git config user.name "fuel-bot"
           git config user.email "fuel-bot@users.noreply.github.com"
-          if [ -n "$(git status --porcelain state.json)" ]; then
-            git add state.json
+          if [ -n "$(git status --porcelain state.json history.jsonl)" ]; then
+            git add state.json history.jsonl
             git commit -m "chore: обновить состояние заправок"
             for i in 1 2 3 4 5; do
               git pull --rebase origin main && git push && break

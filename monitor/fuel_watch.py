@@ -133,13 +133,14 @@ def send_telegram(token, chat_id, text):
 class Monitor:
     def __init__(self, lat, lon, radius_km, wanted_fuels, ntfy_topic,
                  telegram_token=None, telegram_chat=None, state_file=DEFAULT_STATE_FILE,
-                 interval=180):
+                 interval=180, history_file=None):
         self.lat, self.lon, self.radius = lat, lon, radius_km
         self.wanted = [normalize_fuel(f) for f in (wanted_fuels or [])]
         self.ntfy_topic = ntfy_topic
         self.tg_token, self.tg_chat = telegram_token, telegram_chat
         self.state_file = state_file
         self.interval = interval
+        self.history_file = history_file
         self.state = self._load_state()
 
     def _load_state(self):
@@ -154,6 +155,25 @@ class Monitor:
     def _save_state(self):
         with open(self.state_file, "w", encoding="utf-8") as f:
             json.dump(self.state, f, ensure_ascii=False, indent=2)
+
+    def _append_history(self, stations):
+        """Дописывает снимок всех АЗС в history.jsonl (для анализа графиков подвоза)."""
+        if not self.history_file:
+            return
+        t = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with open(self.history_file, "a", encoding="utf-8") as f:
+            for s in stations:
+                rec = {
+                    "t": t,
+                    "osm_id": str(s.get("osm_id")),
+                    "brand": s.get("brand") or s.get("name"),
+                    "addr": s.get("addr"),
+                    "status": s.get("status"),
+                    "fuels": s.get("fuels_now"),
+                    "last_at": s.get("last_at"),
+                    "dist": s.get("distance_km"),
+                }
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
     def _notify(self, text, click=None):
         print(f"[NOTIFY] {text}")
@@ -173,6 +193,7 @@ class Monitor:
     def poll(self):
         stations, updated = fetch_stations(self.lat, self.lon, self.radius)
         print(f"\n[{time.strftime('%H:%M:%S')}] updated={updated}, станций={len(stations)}")
+        self._append_history(stations)
         for s in stations:
             osm = s.get("osm_id")
             avail = station_available(s, self.wanted)
@@ -247,12 +268,14 @@ def main():
     wp.add_argument("--interval", type=int, default=180)
     wp.add_argument("--tg-token", help="токен Telegram-бота")
     wp.add_argument("--tg-chat", help="chat_id для Telegram")
+    wp.add_argument("--history", help="файл истории снимков (JSONL)")
     wp.set_defaults(func=cmd_watch)
 
     op = sub.add_parser("once", help="один опрос с детекцией (для cron/облака)")
     add_common(op)
     op.add_argument("--topic", help="ntfy.sh тема для push")
     op.add_argument("--state", default=DEFAULT_STATE_FILE, help="файл состояния")
+    op.add_argument("--history", help="файл истории снимков (JSONL)")
     op.set_defaults(func=cmd_once)
 
     args = p.parse_args()
@@ -268,13 +291,14 @@ def main():
 
 def cmd_watch(args):
     m = Monitor(args.lat, args.lon, args.radius, args.fuel, args.topic,
-                args.tg_token, args.tg_chat, interval=args.interval)
+                args.tg_token, args.tg_chat, interval=args.interval,
+                history_file=getattr(args, "history", None))
     m.run()
 
 
 def cmd_once(args):
     m = Monitor(args.lat, args.lon, args.radius, args.fuel, args.topic,
-                state_file=args.state)
+                state_file=args.state, history_file=getattr(args, "history", None))
     try:
         m.poll()
     except Exception as e:
@@ -298,6 +322,7 @@ def _env_override(args):
     apply("interval", "FUELWATCH_INTERVAL", int)
     apply("topic", "FUELWATCH_TOPIC", str)
     apply("state", "FUELWATCH_STATE", str)
+    apply("history", "FUELWATCH_HISTORY", str)
     fuels = os.environ.get("FUELWATCH_FUEL")
     if fuels:
         setattr(args, "fuel", fuels.split())
