@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Часовая сводка городского чата gdebenz.ru в ntfy.
+"""Часовая LLM-сводка городского чата gdebenz.ru в ntfy.
 
 Собирает новые сообщения чата водителей города и шлёт ОДНО push-уведомление
-(сводку) за период вместо спама отдельными сообщениями. Предназначен для
-запуска раз в час из внешнего cron.
+со смысловым саммари (через LLM) вместо спама отдельными сообщениями.
+Предназначен для запуска раз в час из внешнего cron.
+
+Если LLM-ключ не задан — откатывается на сырой список сообщений.
 
 Зависимости: только стандартная библиотека Python 3.
 
 Использование:
   python3 chat_watch.py once --city volgograd --topic mytopic --state chat_state.json
 
-Параметры: CHATWATCH_CITY, CHATWATCH_TOPIC, CHATWATCH_STATE, CHATWATCH_LIMIT.
+Параметры: CHATWATCH_CITY, CHATWATCH_TOPIC, CHATWATCH_STATE,
+LLM_API_KEY, LLM_BASE_URL, LLM_MODEL (по умолчанию DeepSeek).
 """
 
 import argparse
@@ -29,8 +32,21 @@ DEFAULT_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "c
 # макс. размер тела сводки (символов). Кириллица = 2 байта/символ, а ntfy
 # превращает в файл всё, что больше 4096 байт, поэтому держим запас.
 MAX_BODY = 1800
-# обрезка текста одного сообщения
+# обрезка текста одного сообщения (для сырого фолбэка)
 BODY_LIMIT = 80
+
+# LLM (по умолчанию DeepSeek, OpenAI-совместимый API)
+DEFAULT_LLM_BASE_URL = "https://api.deepseek.com"
+DEFAULT_LLM_MODEL = "deepseek-chat"
+
+SYSTEM_PROMPT = (
+    "Ты — ассистент водителя. Ниже — сообщения из чата водителей о ситуации "
+    "с топливом на АЗС. Составь краткую и полезную сводку на русском языке: "
+    "где сейчас есть бензин и какие марки, где очереди или лимиты, какие цены, "
+    "важные объявления и предупреждения. Сгруппируй по темам, будь лаконичен "
+    "(до 1200 символов). Не выдумывай фактов, которых нет в сообщениях. "
+    "Отвечай простым текстом без разметки."
+)
 
 
 def _get_json(url, timeout=15):
@@ -133,7 +149,50 @@ def save_state(state_file, state):
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
-def poll(city, topic, state_file):
+def build_llm_input(messages):
+    """Собирает все новые сообщения в один текст для LLM."""
+    lines = []
+    for m in messages:
+        author = m.get("author_name") or "Водитель"
+        body = " ".join((m.get("body") or "").split())
+        if len(body) > 300:
+            body = body[:297] + "..."
+        reply = ""
+        if m.get("reply_to_name"):
+            excerpt = " ".join((m.get("reply_to_excerpt") or "").split())
+            reply = f" (отвечая {m['reply_to_name']}: «{excerpt[:80]}»)"
+        lines.append(f"{author}{reply}: {body}")
+    return "\n".join(lines)
+
+
+def summarize_with_llm(text, api_key, base_url=DEFAULT_LLM_BASE_URL,
+                       model=DEFAULT_LLM_MODEL):
+    url = base_url.rstrip("/") + "/chat/completions"
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": text},
+        ],
+        "temperature": 0.3,
+        "max_tokens": 1000,
+    }
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=90) as r:
+        data = json.loads(r.read().decode("utf-8"))
+    return data["choices"][0]["message"]["content"].strip()
+
+
+def poll(city, topic, state_file, llm_api_key=None, llm_base_url=None,
+         llm_model=None):
     state = load_state(state_file)
     last_id = int(state.get("last_id", 0) or 0)
 
@@ -145,10 +204,23 @@ def poll(city, topic, state_file):
               f"({len(all_msgs)} сообщ. в кеше), без уведомлений.")
     elif new:
         n = len(new)
-        text = build_summary(new)
         title = f"💬 Чат водителей · {n} сообщ."
+        if llm_api_key:
+            try:
+                text = summarize_with_llm(build_llm_input(new), llm_api_key,
+                                          llm_base_url or DEFAULT_LLM_BASE_URL,
+                                          llm_model or DEFAULT_LLM_MODEL)
+                if len(text.encode("utf-8")) > 4000:
+                    text = text[:2000] + "…"
+                print(f"[{time.strftime('%H:%M:%S')}] LLM-саммари готово.")
+            except Exception as e:
+                print(f"  -> LLM FAIL: {e} — откатываюсь на сырой список")
+                text = build_summary(new)
+        else:
+            text = build_summary(new)
         try:
-            send_ntfy(topic, title, text, click=f"https://gdebenz.ru/chat/{urllib.parse.quote(city)}")
+            send_ntfy(topic, title, text,
+                      click=f"https://gdebenz.ru/chat/{urllib.parse.quote(city)}")
             print(f"[{time.strftime('%H:%M:%S')}] Сводка отправлена ({n} сообщ.)")
         except Exception as e:
             print(f"  -> ntfy FAIL: {e}")
@@ -169,6 +241,9 @@ def main():
     op.add_argument("--city", help="slug города (напр. volgograd)")
     op.add_argument("--topic", help="ntfy.sh тема для push")
     op.add_argument("--state", default=DEFAULT_STATE_FILE, help="файл состояния")
+    op.add_argument("--llm-key", help="API-ключ LLM (DeepSeek/OpenAI-совместимый)")
+    op.add_argument("--llm-base-url", help="base URL LLM-API")
+    op.add_argument("--llm-model", help="название модели")
     op.set_defaults(func=cmd_once)
 
     args = p.parse_args()
@@ -184,7 +259,10 @@ def cmd_once(args):
         print("Ошибка: не задана тема ntfy (--topic или CHATWATCH_TOPIC)", file=sys.stderr)
         return 2
     try:
-        poll(args.city, args.topic, args.state)
+        poll(args.city, args.topic, args.state,
+             llm_api_key=getattr(args, "llm_key", None),
+             llm_base_url=getattr(args, "llm_base_url", None),
+             llm_model=getattr(args, "llm_model", None))
     except Exception as e:
         print(f"Ошибка сводки чата: {e}")
         return 1
@@ -203,6 +281,9 @@ def _env_override(args):
     apply("city", "CHATWATCH_CITY", str)
     apply("topic", "CHATWATCH_TOPIC", str)
     apply("state", "CHATWATCH_STATE", str)
+    apply("llm_key", "LLM_API_KEY", str)
+    apply("llm_base_url", "LLM_BASE_URL", str)
+    apply("llm_model", "LLM_MODEL", str)
 
 
 if __name__ == "__main__":

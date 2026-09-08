@@ -24,6 +24,7 @@ jobs:
           CHATWATCH_CITY: ${{ vars.CHAT_CITY }}
           CHATWATCH_TOPIC: ${{ vars.CHAT_TOPIC }}
           CHATWATCH_STATE: chat_state.json
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
         run: python3 monitor/chat_watch.py once
 
       - name: Сохранить состояние
