@@ -35,6 +35,11 @@ MAX_BODY = 1800
 # обрезка текста одного сообщения (для сырого фолбэка)
 BODY_LIMIT = 80
 
+# лимит для LLM-сводки: ntfy отдаёт уведомление, пока тело < 4096 байт.
+# Кириллица ≈ 2 байта/символ, поэтому держим бюджет в символах.
+MAX_SUMMARY_BYTES = 3800
+MAX_SUMMARY_CHARS = 1500
+
 # LLM (по умолчанию DeepSeek, OpenAI-совместимый API)
 DEFAULT_LLM_BASE_URL = "https://api.deepseek.com"
 DEFAULT_LLM_MODEL = "deepseek-chat"
@@ -54,7 +59,8 @@ SYSTEM_PROMPT = (
     "жалуются / советуют».\n"
     "2. НЕ превращай вопросы в утверждения и не додумывай ответы.\n"
     "3. Только факты из сообщений; нет данных по теме — не выдумывай.\n"
-    "4. Кратко (до 1200 символов суммарно), простой текст без разметки."
+    "4. Уложись в 1500 символов суммарно — это ЖЁСТКОЕ ограничение, не превышай "
+    "его. Простой текст без разметки."
 )
 
 
@@ -176,17 +182,16 @@ def build_llm_input(messages):
     return "\n".join(lines)
 
 
-def summarize_with_llm(text, api_key, base_url=DEFAULT_LLM_BASE_URL,
-                       model=DEFAULT_LLM_MODEL):
+def _llm_call(system, user, api_key, base_url, model, max_tokens=800):
     url = base_url.rstrip("/") + "/chat/completions"
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": text},
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
         ],
         "temperature": 0.3,
-        "max_tokens": 1000,
+        "max_tokens": max_tokens,
     }
     req = urllib.request.Request(
         url,
@@ -200,6 +205,38 @@ def summarize_with_llm(text, api_key, base_url=DEFAULT_LLM_BASE_URL,
     with urllib.request.urlopen(req, timeout=90) as r:
         data = json.loads(r.read().decode("utf-8"))
     return data["choices"][0]["message"]["content"].strip()
+
+
+def summarize_with_llm(text, api_key, base_url=DEFAULT_LLM_BASE_URL,
+                       model=DEFAULT_LLM_MODEL):
+    """LLM-сводка с гарантией, что тело уместится в лимит ntfy (без обрезки)."""
+    out = _llm_call(SYSTEM_PROMPT, text, api_key, base_url, model, max_tokens=800)
+
+    # если модель перебрала — просим сократить, а не режем сами
+    if len(out.encode("utf-8")) > MAX_SUMMARY_BYTES:
+        shorten = (
+            "Сократи текст ниже до %d символов, сохранив обе части "
+            "(СВОДКА и ВЫВОДЫ ЗА ПЕРИОД) и главную суть. "
+            "Отвечай только сокращённым текстом, без пояснений." % MAX_SUMMARY_CHARS
+        )
+        try:
+            out2 = _llm_call(shorten, out, api_key, base_url, model, max_tokens=800)
+            if out2:
+                out = out2
+        except Exception as e:
+            print(f"  -> LLM shorten FAIL: {e}")
+
+    # крайний случай (модель не сократила) — режем по строкам, не посреди слова
+    if len(out.encode("utf-8")) > MAX_SUMMARY_BYTES:
+        keep, total = [], 0
+        for ln in out.split("\n"):
+            b = len(ln.encode("utf-8")) + 1
+            if total + b > MAX_SUMMARY_BYTES:
+                break
+            keep.append(ln)
+            total += b
+        out = "\n".join(keep).rstrip()
+    return out
 
 
 def poll(city, topic, state_file, llm_api_key=None, llm_base_url=None,
@@ -221,8 +258,6 @@ def poll(city, topic, state_file, llm_api_key=None, llm_base_url=None,
                 text = summarize_with_llm(build_llm_input(new), llm_api_key,
                                           llm_base_url or DEFAULT_LLM_BASE_URL,
                                           llm_model or DEFAULT_LLM_MODEL)
-                if len(text.encode("utf-8")) > 4000:
-                    text = text[:2000] + "…"
                 print(f"[{time.strftime('%H:%M:%S')}] LLM-саммари готово.")
             except Exception as e:
                 print(f"  -> LLM FAIL: {e} — откатываюсь на сырой список")
