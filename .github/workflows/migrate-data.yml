@@ -1,0 +1,38 @@
+name: migrate-data
+
+# Разовая миграция: переносит старые данные (users_state.json, sends.jsonl,
+# tg_bot_state.json, chat_state.json, history.jsonl) из истории git публичного
+# репозитория в приватный DATA_REPO. Запускать ОДИН РАЗ вручную.
+on:
+  workflow_dispatch:
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # вся история — чтобы достать удалённые файлы
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Восстановить старые данные из истории git
+        run: |
+          mkdir -p /tmp/olddata
+          for f in users_state.json sends.jsonl tg_bot_state.json chat_state.json history.jsonl; do
+            c=$(git log --diff-filter=D --format=%H -1 -- "$f")
+            if [ -n "$c" ]; then
+              git show "$c^:$f" > "/tmp/olddata/$f" 2>/dev/null \
+                && echo "восстановлен $f ($(wc -c < /tmp/olddata/$f) байт)"
+            else
+              echo "$f: не найден в истории"
+            fi
+          done
+
+      - name: Загрузить в приватный репозиторий
+        env:
+          DATA_REPO: ${{ vars.DATA_REPO }}
+          DATA_PAT: ${{ secrets.DATA_PAT }}
+        run: python3 monitor/migrate_data.py /tmp/olddata
