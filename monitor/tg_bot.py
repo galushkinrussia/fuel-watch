@@ -110,12 +110,23 @@ def send_message(token, chat_id, text, reply_markup=None, parse_mode=None):
     _tg("sendMessage", token, params)
 
 
-LOCATION_KEYBOARD = {
-    "keyboard": [[{"text": "📍 Отправить геолокацию", "request_location": True}]],
+MAIN_KEYBOARD = {
+    "keyboard": [
+        [{"text": "📍 Геолокация", "request_location": True}, {"text": "🔔 Уведомления"}],
+        [{"text": "⚙️ Настройки"}, {"text": "💳 Тема"}],
+        [{"text": "❓ Помощь"}],
+    ],
     "resize_keyboard": True,
-    "one_time_keyboard": True,
 }
-REMOVE_KEYBOARD = {"remove_keyboard": True}
+
+# текст кнопки -> команда (для обработки тапов по клавиатуре)
+BUTTONS = {
+    "📍 Геолокация": "loc",
+    "🔔 Уведомления": "notify",
+    "⚙️ Настройки": "status",
+    "💳 Тема": "topic",
+    "❓ Помощь": "help",
+}
 
 
 def set_commands(token):
@@ -235,7 +246,7 @@ def redeem_invite(data, user_id, username, code):
     user = register_user(data, user_id, username)
     inv["used_by"] = str(user_id)
     return True, ("Вы зарегистрированы!\n"
-                  "Отправьте геолокацию: /loc\n" + HELP_TEXT)
+                  "Отправьте геолокацию кнопкой 📍 ниже.\n" + HELP_TEXT)
 
 
 def parse_set(text):
@@ -293,24 +304,19 @@ def handle_location(data, user_id, location):
     uid = str(user_id)
     user = data["users"].get(uid)
     if not user:
-        return REGISTER_PROMPT, None
+        return REGISTER_PROMPT
     lat, lon = location
     user["lat"] = lat
     user["lon"] = lon
     data["users"][uid] = user
-    return (f"OK: координаты заданы\nlat = {lat}\nlon = {lon}", REMOVE_KEYBOARD)
-
-
-def handle_loc_command(data, user_id):
-    """Отправляет клавиатуру с кнопкой геолокации."""
-    uid = str(user_id)
-    if uid not in data["users"]:
-        return REGISTER_PROMPT, None
-    return "Отправьте вашу геолокацию, нажав кнопку ниже 👇", LOCATION_KEYBOARD
+    return f"OK: координаты заданы\nlat = {lat}\nlon = {lon}"
 
 
 def handle_command(text, chat_id, user_id, username, admins, token, data, users_path):
     t = text.strip()
+    # тап по кнопке клавиатуры = команда
+    if t in BUTTONS:
+        t = "/" + BUTTONS[t]
     uid = str(user_id)
     admin = is_admin(user_id, admins)
     user = data["users"].get(uid)
@@ -370,6 +376,9 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
     if t.startswith("/status") or t == "status":
         return format_user(user)
 
+    if t.startswith("/loc") or t == "loc":
+        return "Нажмите кнопку 📍 Геолокация под полем ввода."
+
     if t.startswith("/topic") or t == "topic":
         topic = user.get("topic")
         return (f"Ваша тема push-уведомлений:\n<pre>{topic}</pre>\n"
@@ -410,16 +419,16 @@ def process_update(update, token, admins, data, users_path):
     parse_mode = None
     if location:
         print(f"[{time.strftime('%H:%M:%S')}] от {user_id}: геолокация")
-        reply, reply_markup = handle_location(data, user_id, location)
-    elif text.startswith("/loc") or text == "loc":
-        print(f"[{time.strftime('%H:%M:%S')}] от {user_id}: {text!r}")
-        reply, reply_markup = handle_loc_command(data, user_id)
+        reply = handle_location(data, user_id, location)
     else:
         print(f"[{time.strftime('%H:%M:%S')}] от {user_id}: {text!r}")
         reply = handle_command(text, chat_id, user_id, username, admins, token,
                                data, users_path)
         if isinstance(reply, tuple):
             reply, parse_mode = reply
+    # зарегистрированным показываем главную клавиатуру с кнопками
+    if reply_markup is None and str(user_id) in data.get("users", {}):
+        reply_markup = MAIN_KEYBOARD
     try:
         send_message(token, chat_id, reply, reply_markup=reply_markup,
                      parse_mode=parse_mode)
