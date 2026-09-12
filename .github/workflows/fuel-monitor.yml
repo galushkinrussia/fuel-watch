@@ -24,6 +24,8 @@ jobs:
         env:
           MULTI_USERS: users.json
           MULTI_STATE: users_state.json
+          DATA_REPO: ${{ vars.DATA_REPO }}
+          DATA_PAT: ${{ secrets.DATA_PAT }}
         run: python3 monitor/multi_watch.py once
 
       - name: Сохранить состояние

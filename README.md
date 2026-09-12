@@ -41,12 +41,16 @@ Push приходит через **ntfy.sh** — бесплатную служб
 Читает `users.json` и для каждого активного пользователя опрашивает его
 координаты, шлёт push в его ntfy-тему. Состояние — в `users_state.json`.
 
+`users.json` хранится в **приватном** GitHub-репозитории (чтобы координаты и
+темы не светились в публичном коде) — доступ по `DATA_REPO` + `DATA_PAT`.
+
 ```bash
 python3 monitor/multi_watch.py once --users users.json --state users_state.json
 python3 monitor/multi_watch.py loop --users users.json --state users_state.json --interval 180
 ```
 
-Переменные окружения: `MULTI_USERS`, `MULTI_STATE`, `MULTI_INTERVAL`.
+Переменные окружения: `MULTI_USERS`, `MULTI_STATE`, `MULTI_INTERVAL`,
+`DATA_REPO` (owner/repo приватного репо), `DATA_PAT` (PAT с правами contents).
 
 ### Однопользовательский (`fuel_watch.py`)
 
@@ -142,6 +146,7 @@ Workflow запускаются **только вручную** (`workflow_dispa
 | `CHAT_CITY` | `volgograd` | slug города для сводки чата |
 | `CHAT_TOPIC` | `fuelwatch-chat-...` | ntfy-тема чата |
 | `TELEGRAM_ADMIN` | `123456` | ваш `user_id` (админ бота, выдаёт приглашения) |
+| `DATA_REPO` | `galushkinrussia/fuel-watch-data` | приватный репо с `users.json` |
 
 Секреты (`Secrets`):
 
@@ -149,20 +154,24 @@ Workflow запускаются **только вручную** (`workflow_dispa
 |---|---|
 | `LLM_API_KEY` | ключ DeepSeek (или др. OpenAI-совместимого) для сводки чата |
 | `TELEGRAM_BOT_TOKEN` | токен Telegram-бота |
+| `DATA_PAT` | PAT с правами **contents** на приватный репо (`DATA_REPO`) |
 
 > Координаты, радиус, топливо и ntfy-темы **пользователей** хранятся не в
-> GitHub Variables, а в `users.json` — каждый пользователь задаёт их через бота.
+> GitHub Variables и не в этом репозитории, а в `users.json` внутри
+> **приватного** репозитория (`DATA_REPO`) — каждый задаёт их через бота.
 
 ### Состояние в репозитории
 
 Раннеры GitHub Actions не имеют памяти, поэтому состояние между запусками
 коммитится обратно в репозиторий:
 
-- `users.json` — настройки пользователей и приглашения (меняет бот);
-- `users_state.json` — состояние детекции по каждому пользователю;
+- `users_state.json` — состояние детекции по каждому пользователю (не содержит координат);
 - `tg_bot_state.json` — offset long polling бота;
 - `chat_state.json` — `last_id` последнего сообщения чата;
 - `history.jsonl` — накопленная история снимков (для анализа подвоза).
+
+`users.json` (настройки/приглашения) живёт в приватном `DATA_REPO` и читается
+через GitHub API по `DATA_PAT`.
 
 ---
 
@@ -197,11 +206,14 @@ Workflow запускаются **только вручную** (`workflow_dispa
 
 ### Подготовка (разово)
 
-1. Создайте бота у `@BotFather` (`/newbot`) и возьмите токен.
-2. В GitHub добавьте секрет `TELEGRAM_BOT_TOKEN` (токен) и переменную
-   `TELEGRAM_ADMIN` (ваш `user_id` — узнайте у `@userinfobot`).
-3. Отправьте боту `/setup` — зарегистрировать команды в меню.
-4. Сгенерируйте приглашение командой `/newinvite` и передайте код человеку —
+1. Создайте **приватный** репозиторий для данных (например `fuel-watch-data`) —
+   там будет храниться `users.json`.
+2. Создайте PAT с правами **contents** на этот приватный репо.
+3. В GitHub добавьте: секрет `TELEGRAM_BOT_TOKEN`, секрет `DATA_PAT`,
+   переменные `TELEGRAM_ADMIN` и `DATA_REPO` (`owner/repo`).
+4. Создайте бота у `@BotFather` (`/newbot`) и возьмите токен.
+5. Отправьте боту `/setup` — зарегистрировать команды в меню.
+6. Сгенерируйте приглашение командой `/newinvite` и передайте код человеку —
    он активирует его командой `/invite <код>`.
 
 ### Запуск

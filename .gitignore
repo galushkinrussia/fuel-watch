@@ -7,3 +7,4 @@ monitor.log
 android/.gradle/
 android/app/build/
 android/local.properties
+users.json

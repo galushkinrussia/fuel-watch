@@ -26,15 +26,17 @@ jobs:
           TELEGRAM_ADMIN: ${{ vars.TELEGRAM_ADMIN }}
           USERS_FILE: users.json
           TGBOT_STATE: tg_bot_state.json
+          DATA_REPO: ${{ vars.DATA_REPO }}
+          DATA_PAT: ${{ secrets.DATA_PAT }}
         run: python3 monitor/tg_bot.py once
 
       - name: Сохранить состояние
         run: |
           git config user.name "fuel-bot"
           git config user.email "fuel-bot@users.noreply.github.com"
-          if [ -n "$(git status --porcelain users.json tg_bot_state.json)" ]; then
-            git add users.json tg_bot_state.json
-            git commit -m "chore: обновить пользователей бота"
+          if [ -n "$(git status --porcelain tg_bot_state.json)" ]; then
+            git add tg_bot_state.json
+            git commit -m "chore: обновить состояние бота"
             for i in 1 2 3 4 5; do
               git pull --rebase origin main && git push && break
               sleep 3

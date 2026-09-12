@@ -39,6 +39,9 @@ import time
 import urllib.parse
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import data_store as ds
+
 TG_API = "https://api.telegram.org"
 
 DEFAULT_USERS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "users.json")
@@ -114,19 +117,31 @@ def set_commands(token):
 
 # --- Хранилище users.json ---------------------------------------------------
 
-def load_users(path):
+def load_users(path, repo=None, token=None):
+    """Возвращает (data, sha). Из приватного репо (repo+token) или локально."""
+    if repo and token:
+        try:
+            return ds.load_json(repo, path, token,
+                                default={"invites": {}, "users": {}})
+        except Exception as e:
+            print(f"Не удалось прочитать users.json из {repo}: {e}")
+            return {"invites": {}, "users": {}}, None
     if os.path.exists(path):
         try:
             with open(path, encoding="utf-8") as f:
-                return json.load(f)
+                return json.load(f), None
         except (json.JSONDecodeError, OSError):
             pass
-    return {"invites": {}, "users": {}}
+    return {"invites": {}, "users": {}}, None
 
 
-def save_users(path, data):
+def save_users(path, data, sha, repo=None, token=None, message="обновление пользователей"):
+    """Сохраняет users.json. Возвращает новый sha (или None для локального)."""
+    if repo and token:
+        return ds.save_json(repo, path, token, data, sha, message=message)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    return None
 
 
 def load_state(path):
@@ -301,7 +316,8 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
 
 # --- Режимы запуска ---------------------------------------------------------
 
-def process(token, admins, data, users_path, state_file, offset):
+def process(token, admins, data, users_sha, users_path, state_file, offset,
+            repo=None, data_token=None):
     updates = get_updates(token, offset=offset, timeout=0)
     for u in updates:
         text, chat_id, user_id, username = extract_message(u)
@@ -314,19 +330,25 @@ def process(token, admins, data, users_path, state_file, offset):
             send_message(token, chat_id, reply)
         except Exception as e:
             print(f"  -> send FAIL: {e}")
-    save_users(users_path, data)
+    if updates:
+        try:
+            users_sha = save_users(users_path, data, users_sha,
+                                   repo=repo, token=data_token)
+        except Exception as e:
+            print(f"  -> save users FAIL: {e}")
     new_offset = max((u["update_id"] for u in updates), default=offset) + 1 \
         if updates else offset
     save_state(state_file, {"offset": new_offset,
                             "updated": time.strftime("%Y-%m-%d %H:%M:%S")})
-    return len(updates)
+    return len(updates), users_sha
 
 
 def cmd_once(args):
     offset = load_state(args.state).get("offset")
-    data = load_users(args.users)
+    data, users_sha = load_users(args.users, repo=args.data_repo, token=args.data_token)
     admins = parse_admins(args.admin)
-    n = process(args.token, admins, data, args.users, args.state, offset)
+    n, _ = process(args.token, admins, data, users_sha, args.users, args.state,
+                   offset, repo=args.data_repo, data_token=args.data_token)
     print(f"обработано обновлений: {n}")
     return 0
 
@@ -337,7 +359,7 @@ def cmd_loop(args):
     admins = parse_admins(args.admin)
     print("Бот запущен (loop). Ctrl+C для выхода.")
     while True:
-        data = load_users(args.users)
+        data, users_sha = load_users(args.users, repo=args.data_repo, token=args.data_token)
         try:
             updates = get_updates(args.token, offset=offset, timeout=30)
             for u in updates:
@@ -351,8 +373,9 @@ def cmd_loop(args):
                     send_message(args.token, chat_id, reply)
                 except Exception as e:
                     print(f"  -> send FAIL: {e}")
-            save_users(args.users, data)
             if updates:
+                users_sha = save_users(args.users, data, users_sha,
+                                       repo=args.data_repo, token=args.data_token)
                 offset = max(u["update_id"] for u in updates) + 1
                 save_state(args.state, {"offset": offset,
                                         "updated": time.strftime("%Y-%m-%d %H:%M:%S")})
@@ -373,6 +396,8 @@ def main():
         sp.add_argument("--admin", help="user_id админа(ов) через запятую (или TELEGRAM_ADMIN)")
         sp.add_argument("--users", default=DEFAULT_USERS, help="файл пользователей")
         sp.add_argument("--state", default=DEFAULT_STATE, help="файл состояния")
+        sp.add_argument("--data-repo", help="owner/repo приватного репо с users.json")
+        sp.add_argument("--data-token", help="PAT с правами contents")
 
     op = sub.add_parser("once", help="один проход (для cron/облака)")
     add_common(op)
@@ -400,6 +425,8 @@ def _env_override(args):
     apply("admin", "TELEGRAM_ADMIN")
     apply("users", "USERS_FILE")
     apply("state", "TGBOT_STATE")
+    apply("data_repo", "DATA_REPO")
+    apply("data_token", "DATA_PAT")
 
 
 def parse_admins(raw):

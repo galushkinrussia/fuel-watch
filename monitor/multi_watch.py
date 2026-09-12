@@ -5,6 +5,9 @@
 пользователя опрашивает его координаты, шлёт push в его ntfy-тему при
 появлении топлива. Состояние детекции хранится в users_state.json.
 
+users.json можно хранить в приватном GitHub-репозитории (через DATA_REPO
+и DATA_PAT) — тогда координаты/темы пользователей не попадают в публичный код.
+
 Режимы:
   once — один проход по всем пользователям (для cron/GitHub Actions)
   loop — бесконечный цикл (для VPS/ПК)
@@ -13,9 +16,10 @@
   python3 multi_watch.py once --users users.json --state users_state.json
   python3 multi_watch.py loop --users users.json --state users_state.json --interval 180
 
-Переменные окружения: MULTI_USERS, MULTI_STATE, MULTI_INTERVAL.
+Переменные окружения: MULTI_USERS, MULTI_STATE, MULTI_INTERVAL,
+DATA_REPO (owner/repo приватного репо), DATA_PAT (токен с правами contents).
 
-Зависимости: fuel_watch.py (из той же папки), стандартная библиотека.
+Зависимости: fuel_watch.py, data_store.py (из той же папки), стандартная библиотека.
 """
 
 import argparse
@@ -26,12 +30,22 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fuel_watch as fw
+import data_store as ds
 
 DEFAULT_USERS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "users.json")
 DEFAULT_STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "users_state.json")
 
 
-def load_users(path):
+def load_users(path, repo=None, token=None):
+    """Читает users.json: из приватного репо (repo+token) или локально."""
+    if repo and token:
+        try:
+            data, _ = ds.load_json(repo, path, token,
+                                   default={"invites": {}, "users": {}})
+            return data
+        except Exception as e:
+            print(f"Не удалось прочитать users.json из {repo}: {e}")
+            return {"invites": {}, "users": {}}
     if os.path.exists(path):
         try:
             with open(path, encoding="utf-8") as f:
@@ -94,8 +108,8 @@ def poll_user(uid, u, state):
     return updated, len(stations)
 
 
-def poll_all(users_path, state_path):
-    users = load_users(users_path)
+def poll_all(users_path, state_path, repo=None, token=None):
+    users = load_users(users_path, repo=repo, token=token)
     state = load_state(state_path)
     actives = active_users(users)
     if not actives:
@@ -113,7 +127,7 @@ def poll_all(users_path, state_path):
 
 
 def cmd_once(args):
-    n = poll_all(args.users, args.state)
+    n = poll_all(args.users, args.state, repo=args.data_repo, token=args.data_token)
     print(f"активных пользователей: {n}")
     return 0
 
@@ -122,7 +136,7 @@ def cmd_loop(args):
     print("Мультимонитор запущен (loop). Ctrl+C для выхода.")
     while True:
         try:
-            poll_all(args.users, args.state)
+            poll_all(args.users, args.state, repo=args.data_repo, token=args.data_token)
         except Exception as e:
             print(f"ошибка цикла: {e}")
         try:
@@ -139,6 +153,8 @@ def main():
     def add_common(sp):
         sp.add_argument("--users", default=DEFAULT_USERS, help="файл пользователей")
         sp.add_argument("--state", default=DEFAULT_STATE, help="файл состояния")
+        sp.add_argument("--data-repo", help="owner/repo приватного репо с users.json")
+        sp.add_argument("--data-token", help="PAT с правами contents")
 
     op = sub.add_parser("once", help="один проход (для cron/облака)")
     add_common(op)
@@ -162,6 +178,8 @@ def _env_override(args):
     apply("users", "MULTI_USERS")
     apply("state", "MULTI_STATE")
     apply("interval", "MULTI_INTERVAL")
+    apply("data_repo", "DATA_REPO")
+    apply("data_token", "DATA_PAT")
 
 
 if __name__ == "__main__":
