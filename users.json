@@ -1,4 +1,17 @@
 {
   "invites": {},
-  "users": {}
+  "users": {
+    "438032456": {
+      "username": "galushkinrussia",
+      "lat": null,
+      "lon": null,
+      "radius": 8,
+      "fuel": [
+        "92",
+        "95"
+      ],
+      "topic": null,
+      "registered_at": "2026-09-12 09:57:19"
+    }
+  }
 }
