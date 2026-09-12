@@ -1,7 +1,9 @@
 name: fuel-monitor
 
-# Запускается только вручную (workflow_dispatch) — из внешнего cron
-# (cron-job.org). Встроенное расписание GitHub отключено (троттлилось).
+# Многопользовательский монитор топлива. Читает users.json и для каждого
+# активного пользователя опрашивает его координаты, шлёт push в его ntfy-тему.
+# Запускается из внешнего cron (cron-job.org) через workflow_dispatch —
+# встроенное расписание GitHub отключено (троттлится).
 on:
   workflow_dispatch:
 
@@ -18,24 +20,19 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Опрос заправок
+      - name: Опрос заправок (все пользователи)
         env:
-          FUELWATCH_LAT: ${{ vars.LAT }}
-          FUELWATCH_LON: ${{ vars.LON }}
-          FUELWATCH_RADIUS: ${{ vars.RADIUS }}
-          FUELWATCH_FUEL: ${{ vars.FUEL }}
-          FUELWATCH_TOPIC: ${{ vars.TOPIC }}
-          FUELWATCH_STATE: state.json
-          FUELWATCH_HISTORY: history.jsonl
-        run: python3 monitor/fuel_watch.py once
+          MULTI_USERS: users.json
+          MULTI_STATE: users_state.json
+        run: python3 monitor/multi_watch.py once
 
       - name: Сохранить состояние
         run: |
           git config user.name "fuel-bot"
           git config user.email "fuel-bot@users.noreply.github.com"
-          if [ -n "$(git status --porcelain state.json history.jsonl)" ]; then
-            git add state.json history.jsonl
-            git commit -m "chore: обновить состояние заправок"
+          if [ -n "$(git status --porcelain users_state.json)" ]; then
+            git add users_state.json
+            git commit -m "chore: обновить состояние монитора"
             for i in 1 2 3 4 5; do
               git pull --rebase origin main && git push && break
               sleep 3

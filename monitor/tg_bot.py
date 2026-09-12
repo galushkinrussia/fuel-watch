@@ -1,0 +1,413 @@
+#!/usr/bin/env python3
+"""Многопользовательский Telegram-бот для настройки монитора топлива.
+
+Доступ — только по приглашению. Каждый пользователь хранит СВОИ настройки
+(координаты, радиус, топливо, ntfy-тему) в users.json, который коммитится
+обратно в репозиторий workflow'ом. Монитор (multi_watch.py) обходит всех
+пользователей и шлёт каждому push в его тему.
+
+Команды (пользователь):
+  /start                — приветствие / регистрация (для админа — сразу)
+  /invite <код>         — активировать приглашение
+  /status               — мои настройки
+  /set lat 48.700       — задать настройку
+  /set lon 44.500
+  /set radius 8
+  /set fuel 92 95
+  /set topic <тема>     — моя ntfy-тема (как пароль)
+  /help                 — помощь
+
+Команды (админ):
+  /newinvite            — создать код приглашения
+  /listusers            — список пользователей
+
+Переменные окружения:
+  TELEGRAM_BOT_TOKEN — токен бота (обязательно)
+  TELEGRAM_ADMIN     — user_id админа (или список через запятую)
+  USERS_FILE         — путь к users.json (по умолчанию ../users.json)
+  TGBOT_STATE        — файл состояния offset (по умолчанию tg_bot_state.json)
+
+Зависимости: только стандартная библиотека Python 3.
+"""
+
+import argparse
+import json
+import os
+import secrets
+import sys
+import time
+import urllib.parse
+import urllib.request
+
+TG_API = "https://api.telegram.org"
+
+DEFAULT_USERS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "users.json")
+DEFAULT_STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tg_bot_state.json")
+
+# ключ команды -> (поле в users.json, тип)
+SETTINGS = {
+    "lat": ("lat", float),
+    "lon": ("lon", float),
+    "radius": ("radius", float),
+    "fuel": ("fuel", list),
+    "topic": ("topic", str),
+}
+
+HELP_TEXT = (
+    "Мои настройки:\n"
+    "  /status — показать\n"
+    "  /set lat 48.700\n"
+    "  /set lon 44.500\n"
+    "  /set radius 8\n"
+    "  /set fuel 92 95\n"
+    "  /set topic <моя-тема>\n"
+    "  /help — помощь\n\n"
+    "Уведомления приходят через ntfy: установите приложение и подпишитесь "
+    "на свою тему (она задаётся командой /set topic)."
+)
+
+ADMIN_HELP = (
+    "\n\nАдмин:\n"
+    "  /newinvite — создать код приглашения\n"
+    "  /listusers — список пользователей"
+)
+
+REGISTER_PROMPT = (
+    "Бот доступен по приглашению. Получите код у администратора и "
+    "отправьте: /invite <код>"
+)
+
+
+# --- Telegram API -----------------------------------------------------------
+
+def _tg(method, token, params=None, timeout=25):
+    url = f"{TG_API}/bot{token}/{method}"
+    data = None
+    if params:
+        data = urllib.parse.urlencode(params).encode("utf-8")
+    req = urllib.request.Request(url, data=data, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def get_updates(token, offset=None, timeout=0):
+    params = {"timeout": timeout, "allowed_updates": json.dumps(["message"])}
+    if offset is not None:
+        params["offset"] = offset
+    return _tg("getUpdates", token, params, timeout=timeout + 20).get("result", [])
+
+
+def send_message(token, chat_id, text):
+    _tg("sendMessage", token, {"chat_id": chat_id, "text": text})
+
+
+def set_commands(token):
+    commands = [
+        {"command": "start", "description": "Приветствие"},
+        {"command": "invite", "description": "Активировать приглашение"},
+        {"command": "status", "description": "Мои настройки"},
+        {"command": "set", "description": "Задать настройку"},
+        {"command": "help", "description": "Помощь"},
+    ]
+    _tg("setMyCommands", token, {"commands": json.dumps(commands)})
+
+
+# --- Хранилище users.json ---------------------------------------------------
+
+def load_users(path):
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"invites": {}, "users": {}}
+
+
+def save_users(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def load_state(path):
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def save_state(path, state):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+
+
+# --- Команды ----------------------------------------------------------------
+
+def extract_message(update):
+    msg = update.get("message") or {}
+    text = (msg.get("text") or "").strip()
+    chat_id = (msg.get("chat") or {}).get("id")
+    user = msg.get("from") or {}
+    user_id = user.get("id")
+    username = user.get("username") or user.get("first_name") or ""
+    return text, chat_id, user_id, username
+
+
+def is_admin(user_id, admins):
+    return admins and str(user_id) in admins
+
+
+def register_user(data, user_id, username):
+    uid = str(user_id)
+    if uid not in data["users"]:
+        data["users"][uid] = {
+            "username": username,
+            "lat": None,
+            "lon": None,
+            "radius": 8,
+            "fuel": ["92", "95"],
+            "topic": None,
+            "registered_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    return data["users"][uid]
+
+
+def new_invite(data):
+    code = secrets.token_hex(4)
+    data["invites"][code] = {
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "used_by": None,
+    }
+    return code
+
+
+def redeem_invite(data, user_id, username, code):
+    code = code.strip().lower()
+    inv = data["invites"].get(code)
+    if not inv:
+        return False, "Неверный код приглашения."
+    if inv.get("used_by") is not None:
+        return False, "Этот код уже использован."
+    register_user(data, user_id, username)
+    inv["used_by"] = str(user_id)
+    return True, "Вы зарегистрированы! Задайте координаты и тему:\n" + HELP_TEXT
+
+
+def parse_set(text):
+    parts = text.split()
+    if len(parts) >= 3 and parts[0].lower() in ("/set", "set"):
+        key = parts[1].lower()
+        value = " ".join(parts[2:])
+        if key in SETTINGS:
+            return key, value
+    return None, None
+
+
+def apply_set(user, key, value):
+    field, cast = SETTINGS[key]
+    try:
+        user[field] = value.split() if cast is list else cast(value)
+        return True, f"OK: {key} = {value}"
+    except (ValueError, TypeError):
+        return False, f"Неверное значение для {key}: {value}"
+
+
+def format_user(user):
+    lines = ["Мои настройки:"]
+    lines.append(f"  lat = {user.get('lat')}")
+    lines.append(f"  lon = {user.get('lon')}")
+    lines.append(f"  radius = {user.get('radius')}")
+    lines.append(f"  fuel = {' '.join(user.get('fuel') or [])}")
+    lines.append(f"  topic = {user.get('topic')}")
+    active = user.get("lat") is not None and user.get("lon") is not None and user.get("topic")
+    lines.append("")
+    lines.append("Статус: " + ("✅ активен (уведомления идут)" if active else "⚠️ задайте lat, lon и topic"))
+    return "\n".join(lines)
+
+
+def handle_command(text, chat_id, user_id, username, admins, token, data, users_path):
+    t = text.strip()
+    uid = str(user_id)
+    admin = is_admin(user_id, admins)
+    user = data["users"].get(uid)
+    registered = user is not None
+
+    # --- служебные команды (доступны всегда) ---
+    if t.startswith("/start"):
+        parts = t.split()
+        if admin and not registered:
+            register_user(data, user_id, username)
+            return "Вы админ и зарегистрированы автоматически.\n" + HELP_TEXT
+        if registered:
+            return "С возвращением!\n" + HELP_TEXT
+        if len(parts) >= 2:  # /start <code>
+            ok, msg = redeem_invite(data, user_id, username, parts[1])
+            return msg
+        return "Привет!\n" + REGISTER_PROMPT
+
+    if t.startswith("/invite") or t.startswith("invite"):
+        if registered:
+            return "Вы уже зарегистрированы."
+        parts = t.split()
+        if len(parts) < 2:
+            return "Формат: /invite <код>"
+        ok, msg = redeem_invite(data, user_id, username, parts[1])
+        return msg
+
+    if t.startswith("/help") or t == "help":
+        return HELP_TEXT + (ADMIN_HELP if admin else "")
+
+    # --- админские команды ---
+    if t.startswith("/newinvite"):
+        if not admin:
+            return "Недостаточно прав."
+        code = new_invite(data)
+        return f"Код приглашения: {code}\nПередайте его человеку, он отправит боту /invite {code}"
+
+    if t.startswith("/listusers"):
+        if not admin:
+            return "Недостаточно прав."
+        if not data["users"]:
+            return "Пользователей нет."
+        lines = ["Пользователи:"]
+        for u, us in data["users"].items():
+            act = "✅" if (us.get("lat") and us.get("lon") and us.get("topic")) else "—"
+            lines.append(f"  {act} {u} ({us.get('username')})")
+        return "\n".join(lines)
+
+    # --- пользовательские команды (нужна регистрация) ---
+    if not registered:
+        return REGISTER_PROMPT
+
+    if t.startswith("/status") or t == "status":
+        return format_user(user)
+
+    if t.startswith("/setup"):
+        set_commands(token)
+        return "Команды зарегистрированы в меню."
+
+    key, value = parse_set(t)
+    if key:
+        ok, msg = apply_set(user, key, value)
+        if ok:
+            data["users"][uid] = user
+        return msg
+
+    return "Не понял команду. Напишите /help."
+
+
+# --- Режимы запуска ---------------------------------------------------------
+
+def process(token, admins, data, users_path, state_file, offset):
+    updates = get_updates(token, offset=offset, timeout=0)
+    for u in updates:
+        text, chat_id, user_id, username = extract_message(u)
+        if not text or not chat_id:
+            continue
+        print(f"[{time.strftime('%H:%M:%S')}] от {user_id}: {text!r}")
+        reply = handle_command(text, chat_id, user_id, username, admins, token,
+                               data, users_path)
+        try:
+            send_message(token, chat_id, reply)
+        except Exception as e:
+            print(f"  -> send FAIL: {e}")
+    save_users(users_path, data)
+    new_offset = max((u["update_id"] for u in updates), default=offset) + 1 \
+        if updates else offset
+    save_state(state_file, {"offset": new_offset,
+                            "updated": time.strftime("%Y-%m-%d %H:%M:%S")})
+    return len(updates)
+
+
+def cmd_once(args):
+    offset = load_state(args.state).get("offset")
+    data = load_users(args.users)
+    admins = parse_admins(args.admin)
+    n = process(args.token, admins, data, args.users, args.state, offset)
+    print(f"обработано обновлений: {n}")
+    return 0
+
+
+def cmd_loop(args):
+    state = load_state(args.state)
+    offset = state.get("offset")
+    admins = parse_admins(args.admin)
+    print("Бот запущен (loop). Ctrl+C для выхода.")
+    while True:
+        data = load_users(args.users)
+        try:
+            updates = get_updates(args.token, offset=offset, timeout=30)
+            for u in updates:
+                text, chat_id, user_id, username = extract_message(u)
+                if not text or not chat_id:
+                    continue
+                print(f"[{time.strftime('%H:%M:%S')}] от {user_id}: {text!r}")
+                reply = handle_command(text, chat_id, user_id, username,
+                                       admins, args.token, data, args.users)
+                try:
+                    send_message(args.token, chat_id, reply)
+                except Exception as e:
+                    print(f"  -> send FAIL: {e}")
+            save_users(args.users, data)
+            if updates:
+                offset = max(u["update_id"] for u in updates) + 1
+                save_state(args.state, {"offset": offset,
+                                        "updated": time.strftime("%Y-%m-%d %H:%M:%S")})
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            print(f"ошибка цикла: {e}")
+            time.sleep(5)
+    return 0
+
+
+def main():
+    p = argparse.ArgumentParser(description="Многопользовательский Telegram-бот")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    def add_common(sp):
+        sp.add_argument("--token", help="токен бота (или TELEGRAM_BOT_TOKEN)")
+        sp.add_argument("--admin", help="user_id админа(ов) через запятую (или TELEGRAM_ADMIN)")
+        sp.add_argument("--users", default=DEFAULT_USERS, help="файл пользователей")
+        sp.add_argument("--state", default=DEFAULT_STATE, help="файл состояния")
+
+    op = sub.add_parser("once", help="один проход (для cron/облака)")
+    add_common(op)
+    op.set_defaults(func=cmd_once)
+
+    lp = sub.add_parser("loop", help="постоянный опрос (VPS/ПК)")
+    add_common(lp)
+    lp.set_defaults(func=cmd_loop)
+
+    args = p.parse_args()
+    _env_override(args)
+    if not args.token:
+        print("Ошибка: не задан токен бота (--token или TELEGRAM_BOT_TOKEN)",
+              file=sys.stderr)
+        return 2
+    return args.func(args) or 0
+
+
+def _env_override(args):
+    def apply(name, env):
+        v = os.environ.get(env)
+        if v is not None and v != "":
+            setattr(args, name, v)
+    apply("token", "TELEGRAM_BOT_TOKEN")
+    apply("admin", "TELEGRAM_ADMIN")
+    apply("users", "USERS_FILE")
+    apply("state", "TGBOT_STATE")
+
+
+def parse_admins(raw):
+    """'123,456' -> {'123','456'}"""
+    if not raw:
+        return set()
+    return {s.strip() for s in str(raw).split(",") if s.strip()}
+
+
+if __name__ == "__main__":
+    sys.exit(main())

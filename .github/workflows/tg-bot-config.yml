@@ -1,0 +1,42 @@
+name: tg-bot-config
+
+# Многопользовательский Telegram-бот: регистрация по приглашению, настройка
+# координат/топлива/темы каждого пользователя (users.json).
+# Запускается из внешнего cron (cron-job.org) через workflow_dispatch —
+# встроенное расписание GitHub отключено (троттлится).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Обработка команд бота
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN: ${{ vars.TELEGRAM_ADMIN }}
+          USERS_FILE: users.json
+          TGBOT_STATE: tg_bot_state.json
+        run: python3 monitor/tg_bot.py once
+
+      - name: Сохранить состояние
+        run: |
+          git config user.name "fuel-bot"
+          git config user.email "fuel-bot@users.noreply.github.com"
+          if [ -n "$(git status --porcelain users.json tg_bot_state.json)" ]; then
+            git add users.json tg_bot_state.json
+            git commit -m "chore: обновить пользователей бота"
+            for i in 1 2 3 4 5; do
+              git pull --rebase origin main && git push && break
+              sleep 3
+            done
+          fi
