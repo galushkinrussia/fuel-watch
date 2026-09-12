@@ -58,16 +58,13 @@ SETTINGS = {
 }
 
 HELP_TEXT = (
-    "Мои настройки:\n"
-    "  /loc — отправить геолокацию\n"
-    "  /set radius 8 — радиус поиска, км\n"
-    "  /set fuel 92 95 — марки топлива\n"
-    "  /notify — вкл/выкл уведомления о заправках\n"
-    "  /status — показать настройки\n"
-    "  /topic — тема push-уведомлений\n"
-    "  /help — помощь\n\n"
-    "Координаты можно ввести и вручную: /set lat …, /set lon …\n"
-    "Уведомления приходят в этот чат и в приложение."
+    "Как пользоваться:\n"
+    "  📍 Геолокация — задать место\n"
+    "  🔔 Уведомления — вкл/выкл\n"
+    "  ⚙️ Настройки — радиус и топливо\n"
+    "  ❓ Помощь — эта справка\n\n"
+    "Уведомления приходят в этот чат и в приложение.\n"
+    "Данные: отметки водителей на gdebenz.ru."
 )
 
 ADMIN_HELP = (
@@ -95,7 +92,8 @@ def _tg(method, token, params=None, timeout=25):
 
 
 def get_updates(token, offset=None, timeout=0):
-    params = {"timeout": timeout, "allowed_updates": json.dumps(["message"])}
+    params = {"timeout": timeout,
+              "allowed_updates": json.dumps(["message", "callback_query"])}
     if offset is not None:
         params["offset"] = offset
     return _tg("getUpdates", token, params, timeout=timeout + 20).get("result", [])
@@ -110,11 +108,33 @@ def send_message(token, chat_id, text, reply_markup=None, parse_mode=None):
     _tg("sendMessage", token, params)
 
 
+def edit_message(token, chat_id, message_id, text, reply_markup=None,
+                 parse_mode=None):
+    params = {"chat_id": chat_id, "message_id": message_id, "text": text}
+    if reply_markup is not None:
+        params["reply_markup"] = json.dumps(reply_markup)
+    if parse_mode:
+        params["parse_mode"] = parse_mode
+    try:
+        _tg("editMessageText", token, params)
+    except Exception as e:
+        print(f"  -> edit FAIL: {e}")
+
+
+def answer_callback(token, callback_id, text=None):
+    params = {"callback_query_id": callback_id}
+    if text:
+        params["text"] = text
+    try:
+        _tg("answerCallbackQuery", token, params)
+    except Exception as e:
+        print(f"  -> answerCallback FAIL: {e}")
+
+
 MAIN_KEYBOARD = {
     "keyboard": [
         [{"text": "📍 Геолокация", "request_location": True}, {"text": "🔔 Уведомления"}],
-        [{"text": "⚙️ Настройки"}, {"text": "💳 Тема"}],
-        [{"text": "❓ Помощь"}],
+        [{"text": "⚙️ Настройки"}, {"text": "❓ Помощь"}],
     ],
     "resize_keyboard": True,
 }
@@ -123,8 +143,7 @@ MAIN_KEYBOARD = {
 BUTTONS = {
     "📍 Геолокация": "loc",
     "🔔 Уведомления": "notify",
-    "⚙️ Настройки": "status",
-    "💳 Тема": "topic",
+    "⚙️ Настройки": "settings",
     "❓ Помощь": "help",
 }
 
@@ -245,8 +264,8 @@ def redeem_invite(data, user_id, username, code):
         return False, "Этот код уже использован."
     user = register_user(data, user_id, username)
     inv["used_by"] = str(user_id)
-    return True, ("Вы зарегистрированы!\n"
-                  "Отправьте геолокацию кнопкой 📍 ниже.\n" + HELP_TEXT)
+    return True, ("Готово! Осталось задать место — нажмите «📍 Геолокация» ниже.\n\n"
+                  + HELP_TEXT)
 
 
 def parse_set(text):
@@ -282,21 +301,51 @@ def apply_set(user, key, value):
 
 
 def format_user(user):
-    lines = ["Мои настройки:"]
-    lines.append(f"  lat = {user.get('lat')}")
-    lines.append(f"  lon = {user.get('lon')}")
-    lines.append(f"  radius = {user.get('radius')}")
-    lines.append(f"  fuel = {' '.join(user.get('fuel') or [])}")
+    """Экран настроек с инлайн-кнопками. Возвращает (text, inline_keyboard)."""
+    lat, lon = user.get("lat"), user.get("lon")
+    loc = f"{lat:.4f}, {lon:.4f}" if lat is not None and lon is not None else "не задана"
+    radius = user.get("radius", 8)
+    fuel = user.get("fuel") or []
     enabled = user.get("enabled", True)
-    lines.append(f"  уведомления = {'вкл' if enabled else 'выкл'}")
-    lines.append("")
-    if user.get("lat") is None or user.get("lon") is None:
-        lines.append("Статус: ⚠️ отправьте геолокацию /loc")
-    elif not enabled:
-        lines.append("Статус: ⏸ уведомления выключены (/notify — включить)")
-    else:
-        lines.append("Статус: ✅ активен (уведомления идут)")
-    return "\n".join(lines)
+
+    text = (f"⚙️ Настройки\n\n"
+            f"📍 Локация: {loc}\n"
+            f"📏 Радиус: {radius} км\n"
+            f"⛽ Топливо: {', '.join(fuel) if fuel else '—'}\n"
+            f"🔔 Уведомления: {'вкл' if enabled else 'выкл'}")
+    if lat is None or lon is None:
+        text += "\n\n⚠️ Нажмите «📍 Геолокация», чтобы задать место."
+
+    def mark(cond):
+        return "✓ " if cond else ""
+
+    radius_row = [{"text": f"{mark(float(radius) == r)}{r} км", "callback_data": f"r:{r}"}
+                  for r in (5, 8, 15)]
+    fuel_row = [{"text": f"{mark(f in fuel)}{f}", "callback_data": f"f:{f}"}
+                for f in ("92", "95", "ДТ")]
+    toggle = {"text": "🔔 выключить" if enabled else "🔔 включить", "callback_data": "t"}
+    keyboard = {"inline_keyboard": [radius_row, fuel_row, [toggle]]}
+    return text, None, keyboard
+
+
+def apply_callback(user, cb_data):
+    """Применяет нажатие инлайн-кнопки. Возвращает текст всплывающей подсказки."""
+    if cb_data.startswith("r:"):
+        user["radius"] = float(cb_data[2:])
+        return f"Радиус: {user['radius']} км"
+    if cb_data.startswith("f:"):
+        f = cb_data[2:]
+        fuels = list(user.get("fuel") or [])
+        if f in fuels:
+            fuels.remove(f)
+        else:
+            fuels.append(f)
+        user["fuel"] = fuels
+        return f"Топливо: {', '.join(fuels) if fuels else '—'}"
+    if cb_data == "t":
+        user["enabled"] = not user.get("enabled", True)
+        return "Уведомления " + ("включены" if user["enabled"] else "выключены")
+    return ""
 
 
 def handle_location(data, user_id, location):
@@ -327,10 +376,10 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
         parts = t.split()
         if admin and not registered:
             user = register_user(data, user_id, username)
-            return "Вы админ и зарегистрированы автоматически.\n" + HELP_TEXT
+            return ("Вы админ. Задайте место кнопкой «📍 Геолокация».\n\n" + HELP_TEXT)
         if registered:
             user = register_user(data, user_id, username)  # дозаполнит тему, если её нет
-            return "С возвращением!\n" + HELP_TEXT
+            return "С возвращением!\n\n" + HELP_TEXT
         if len(parts) >= 2:  # /start <code>
             ok, msg = redeem_invite(data, user_id, username, parts[1])
             return msg
@@ -373,7 +422,8 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
     if not registered:
         return REGISTER_PROMPT
 
-    if t.startswith("/status") or t == "status":
+    if (t.startswith("/status") or t.startswith("/settings")
+            or t in ("status", "settings")):
         return format_user(user)
 
     if t.startswith("/loc") or t == "loc":
@@ -411,12 +461,35 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
 # --- Режимы запуска ---------------------------------------------------------
 
 def process_update(update, token, admins, data, users_path):
-    """Обрабатывает одно обновление (текст или геолокацию) и отправляет ответ."""
+    """Обрабатывает одно обновление (текст, геолокацию или нажатие кнопки)."""
+    # --- нажатие инлайн-кнопки ---
+    cb = update.get("callback_query")
+    if cb:
+        cid = cb.get("id")
+        cb_data = cb.get("data") or ""
+        from_id = (cb.get("from") or {}).get("id")
+        msg = cb.get("message") or {}
+        chat_id = (msg.get("chat") or {}).get("id")
+        message_id = msg.get("message_id")
+        uid = str(from_id)
+        user = data["users"].get(uid)
+        print(f"[{time.strftime('%H:%M:%S')}] callback от {from_id}: {cb_data!r}")
+        if user:
+            toast = apply_callback(user, cb_data)
+            data["users"][uid] = user
+            answer_callback(token, cid, toast)
+            text, _, keyboard = format_user(user)
+            edit_message(token, chat_id, message_id, text, reply_markup=keyboard)
+        else:
+            answer_callback(token, cid, "Сначала зарегистрируйтесь")
+        return
+
     text, chat_id, user_id, username, location = extract_message(update)
     if not chat_id:
         return
     reply_markup = None
     parse_mode = None
+    inline = None
     if location:
         print(f"[{time.strftime('%H:%M:%S')}] от {user_id}: геолокация")
         reply = handle_location(data, user_id, location)
@@ -425,9 +498,14 @@ def process_update(update, token, admins, data, users_path):
         reply = handle_command(text, chat_id, user_id, username, admins, token,
                                data, users_path)
         if isinstance(reply, tuple):
-            reply, parse_mode = reply
-    # зарегистрированным показываем главную клавиатуру с кнопками
-    if reply_markup is None and str(user_id) in data.get("users", {}):
+            if len(reply) == 3:
+                reply, parse_mode, inline = reply
+            else:
+                reply, parse_mode = reply
+    # зарегистрированным показываем главную клавиатуру (если нет инлайн-кнопок)
+    if inline is not None:
+        reply_markup = inline
+    elif str(user_id) in data.get("users", {}):
         reply_markup = MAIN_KEYBOARD
     try:
         send_message(token, chat_id, reply, reply_markup=reply_markup,
