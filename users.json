@@ -1,5 +1,10 @@
 {
-  "invites": {},
+  "invites": {
+    "3ebce50e": {
+      "created_at": "2026-09-12 10:02:20",
+      "used_by": null
+    }
+  },
   "users": {
     "438032456": {
       "username": "galushkinrussia",
