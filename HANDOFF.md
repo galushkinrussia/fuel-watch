@@ -15,7 +15,8 @@ push — через **ntfy.sh** (телефон + браузер). Telegram бо
 | `monitor/fuel_watch.py` | опрашивает АЗС, push при появлении топлива (переход «нет → есть»), пишет историю в `history.jsonl` |
 | `monitor/chat_watch.py` | раз в час — LLM-сводка городского чата водителей (вместо спама отдельными сообщениями) |
 | `monitor/analyze.py` | анализ времени подвоза топлива по накопленной истории |
-| `ANALYSIS.md` | готовый разбор «где и когда стабильно дают бензин» (для публикации) |
+| `analysis/ANALYSIS.md` | краткий разбор «где и когда стабильно дают бензин» (для публикации) |
+| `analysis/ANALYSIS-FULL.md` | полный разбор: все АЗС, время подвоза, гистограмма по часам |
 | `android/` (Kotlin) | автономное приложение на телефоне (не в проде, см. §7) |
 
 ---
@@ -120,7 +121,7 @@ python3 monitor/analyze.py --history history.jsonl --station Лукойл
 - `monitor/fuel_watch.py`, `chat_watch.py`, `analyze.py` — скрипты.
 - `monitor/config.example.json` — пример локального конфига.
 - `state.json`, `chat_state.json`, `history.jsonl` — состояние/история (трекаются в git).
-- `ANALYSIS.md` — контентный разбор.
+- `analysis/ANALYSIS.md` — краткий разбор; `analysis/ANALYSIS-FULL.md` — полный.
 - `android/` — мобильное приложение.
 - `README.md` — основная документация (актуальна).
 
@@ -148,4 +149,4 @@ python3 monitor/analyze.py --history history.jsonl --station Лукойл
 - Собрать подписанный release-APK (убрать ложное срабатывание Сбера).
 - Добавить цену в текст уведомления.
 - Пароль (access token) на темы ntfy, если репо публичный.
-- Автопост `ANALYSIS.md` в соцсети/каналы.
+- Автопост `analysis/ANALYSIS.md` в соцсети/каналы.
