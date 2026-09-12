@@ -24,6 +24,7 @@ jobs:
           MULTI_USERS: users.json
           MULTI_STATE: users_state.json
           MULTI_SENDS: sends.jsonl
+          MULTI_HISTORY: history.jsonl
           DATA_REPO: ${{ vars.DATA_REPO }}
           DATA_PAT: ${{ secrets.DATA_PAT }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

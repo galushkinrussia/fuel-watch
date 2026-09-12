@@ -119,11 +119,24 @@ def _read_local(path):
     return ""
 
 
-def poll_user(uid, u, state, tg_token=None, sends_buf=None):
+def poll_user(uid, u, state, tg_token=None, sends_buf=None, history_acc=None):
     wanted = u.get("fuel") or []
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     stations, updated = fw.fetch_stations(u["lat"], u["lon"], u.get("radius", 8))
     for s in stations:
         osm = str(s.get("osm_id"))
+        if history_acc is not None:
+            history_acc[f"{uid}:{osm}"] = {
+                "t": now,
+                "user": uid,
+                "osm_id": osm,
+                "brand": s.get("brand") or s.get("name"),
+                "addr": s.get("addr"),
+                "status": s.get("status"),
+                "fuels": s.get("fuels_now"),
+                "last_at": s.get("last_at"),
+                "dist": s.get("distance_km"),
+            }
         avail = fw.station_available(s, wanted)
         prev = state.get(osm, {}).get("avail")
         if avail and prev is False:
@@ -161,18 +174,22 @@ def poll_user(uid, u, state, tg_token=None, sends_buf=None):
 
 
 def poll_all(users_path, state_path, repo=None, token=None, tg_token=None,
-             sends_path=None):
+             sends_path=None, history_path=None):
     users = load_users(users_path, repo=repo, token=token)
     remote = bool(repo and token)
     if remote:
         state, state_sha = ds.load_json(repo, state_path, token, default={})
         sends_text, sends_sha = (ds.load_text(repo, sends_path, token, default="")
                                  if sends_path else ("", None))
+        hist_text, hist_sha = (ds.load_text(repo, history_path, token, default="")
+                               if history_path else ("", None))
     else:
         state = load_state(state_path)
         state_sha = None
         sends_text, sends_sha = _read_local(sends_path), None
+        hist_text, hist_sha = _read_local(history_path), None
     sends_buf = [] if sends_path else None
+    history_acc = {} if history_path else None
 
     actives = active_users(users)
     if not actives:
@@ -181,7 +198,7 @@ def poll_all(users_path, state_path, repo=None, token=None, tg_token=None,
         ustate = state.setdefault(str(uid), {})
         try:
             updated, n = poll_user(uid, u, ustate, tg_token=tg_token,
-                                   sends_buf=sends_buf)
+                                   sends_buf=sends_buf, history_acc=history_acc)
             print(f"[{time.strftime('%H:%M:%S')}] user {uid}: "
                   f"updated={updated}, станций={n}")
         except Exception as e:
@@ -199,11 +216,23 @@ def poll_all(users_path, state_path, repo=None, token=None, tg_token=None,
                              sends_sha, message="журнал отправок")
             except Exception as e:
                 print(f"не удалось сохранить журнал отправок: {e}")
+        if history_path and history_acc:
+            try:
+                lines = "".join(json.dumps(r, ensure_ascii=False) + "\n"
+                                for r in history_acc.values())
+                ds.save_text(repo, history_path, token, hist_text + lines,
+                             hist_sha, message="история снимков")
+            except Exception as e:
+                print(f"не удалось сохранить историю: {e}")
     else:
         save_state(state_path, state)
         if sends_path and sends_buf:
             with open(sends_path, "a", encoding="utf-8") as f:
                 f.write("".join(sends_buf))
+        if history_path and history_acc:
+            with open(history_path, "a", encoding="utf-8") as f:
+                for r in history_acc.values():
+                    f.write(json.dumps(r, ensure_ascii=False) + "\n")
     return len(actives)
 
 
@@ -218,7 +247,8 @@ def _storage_note(args):
 def cmd_once(args):
     print(f"[{time.strftime('%H:%M:%S')}] хранилище данных: {_storage_note(args)}")
     n = poll_all(args.users, args.state, repo=args.data_repo, token=args.data_token,
-                 tg_token=args.telegram_token, sends_path=args.sends)
+                 tg_token=args.telegram_token, sends_path=args.sends,
+                 history_path=args.history)
     print(f"активных пользователей: {n}")
     return 0
 
@@ -229,7 +259,8 @@ def cmd_loop(args):
     while True:
         try:
             poll_all(args.users, args.state, repo=args.data_repo, token=args.data_token,
-                     tg_token=args.telegram_token, sends_path=args.sends)
+                     tg_token=args.telegram_token, sends_path=args.sends,
+                     history_path=args.history)
         except Exception as e:
             print(f"ошибка цикла: {e}")
         try:
@@ -250,6 +281,7 @@ def main():
         sp.add_argument("--data-token", help="PAT с правами contents")
         sp.add_argument("--telegram-token", help="токен бота для дубля в Telegram (или TELEGRAM_BOT_TOKEN)")
         sp.add_argument("--sends", default=None, help="файл журнала отправок (JSONL)")
+        sp.add_argument("--history", default=None, help="файл истории снимков (JSONL)")
 
     op = sub.add_parser("once", help="один проход (для cron/облака)")
     add_common(op)
@@ -277,6 +309,7 @@ def _env_override(args):
     apply("data_token", "DATA_PAT")
     apply("telegram_token", "TELEGRAM_BOT_TOKEN")
     apply("sends", "MULTI_SENDS")
+    apply("history", "MULTI_HISTORY")
 
 
 if __name__ == "__main__":

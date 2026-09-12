@@ -60,6 +60,7 @@ SETTINGS = {
 HELP_TEXT = (
     "Как пользоваться:\n"
     "  📍 Геолокация — задать место\n"
+    "  📊 Анализ — когда обычно бывает топливо\n"
     "  ⚙️ Настройки — радиус, топливо, уведомления\n"
     "  ❓ Помощь — эта справка\n\n"
     "Уведомления приходят в этот чат и в приложение.\n"
@@ -132,15 +133,18 @@ def answer_callback(token, callback_id, text=None):
 
 MAIN_KEYBOARD = {
     "keyboard": [
-        [{"text": "📍 Геолокация", "request_location": True}],
+        [{"text": "📍 Геолокация", "request_location": True}, {"text": "📊 Анализ"}],
         [{"text": "⚙️ Настройки"}, {"text": "❓ Помощь"}],
     ],
     "resize_keyboard": True,
 }
 
+HISTORY_FILE = "history.jsonl"
+
 # текст кнопки -> команда (для обработки тапов по клавиатуре)
 BUTTONS = {
     "📍 Геолокация": "loc",
+    "📊 Анализ": "stats",
     "🔔 Уведомления": "notify",
     "⚙️ Настройки": "settings",
     "❓ Помощь": "help",
@@ -152,6 +156,7 @@ def set_commands(token):
         {"command": "start", "description": "Приветствие"},
         {"command": "invite", "description": "Активировать приглашение"},
         {"command": "loc", "description": "Отправить геолокацию"},
+        {"command": "stats", "description": "Анализ подвоза"},
         {"command": "notify", "description": "Вкл/выкл уведомления"},
         {"command": "status", "description": "Мои настройки"},
         {"command": "topic", "description": "Тема push-уведомлений"},
@@ -347,6 +352,23 @@ def apply_callback(user, cb_data):
     return ""
 
 
+def user_stats(data_repo, data_token, user_id):
+    """Персональный анализ подвоза по истории пользователя."""
+    if not (data_repo and data_token):
+        return "Анализ доступен только в облачном режиме."
+    try:
+        text, _ = ds.load_text(data_repo, HISTORY_FILE, data_token, default="")
+    except Exception as e:
+        return f"Не удалось получить статистику: {e}"
+    if not text.strip():
+        return "Пока нет данных — наберём историю за пару дней."
+    import analyze as az
+    mine = [r for r in az.parse_records(text) if str(r.get("user")) == str(user_id)]
+    if not mine:
+        return "Пока нет данных по вашим АЗС — наберём историю за пару дней."
+    return az.build_digest(mine, az.analyze(mine), tz=3)
+
+
 def handle_location(data, user_id, location):
     """Записывает геолокацию пользователя в lat/lon."""
     uid = str(user_id)
@@ -360,7 +382,8 @@ def handle_location(data, user_id, location):
     return f"OK: координаты заданы\nlat = {lat}\nlon = {lon}"
 
 
-def handle_command(text, chat_id, user_id, username, admins, token, data, users_path):
+def handle_command(text, chat_id, user_id, username, admins, token, data, users_path,
+                   data_repo=None, data_token=None):
     t = text.strip()
     # тап по кнопке клавиатуры = команда
     if t in BUTTONS:
@@ -421,9 +444,11 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
     if not registered:
         return REGISTER_PROMPT
 
-    if (t.startswith("/status") or t.startswith("/settings")
-            or t in ("status", "settings")):
+    if t.startswith("/status") or t.startswith("/settings") or t in ("status", "settings"):
         return format_user(user)
+
+    if t.startswith("/stats") or t == "stats":
+        return user_stats(data_repo, data_token, uid)
 
     if t.startswith("/loc") or t == "loc":
         return "Нажмите кнопку 📍 Геолокация под полем ввода."
@@ -459,7 +484,8 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
 
 # --- Режимы запуска ---------------------------------------------------------
 
-def process_update(update, token, admins, data, users_path):
+def process_update(update, token, admins, data, users_path,
+                   data_repo=None, data_token=None):
     """Обрабатывает одно обновление (текст, геолокацию или нажатие кнопки)."""
     # --- нажатие инлайн-кнопки ---
     cb = update.get("callback_query")
@@ -495,7 +521,7 @@ def process_update(update, token, admins, data, users_path):
     else:
         print(f"[{time.strftime('%H:%M:%S')}] от {user_id}: {text!r}")
         reply = handle_command(text, chat_id, user_id, username, admins, token,
-                               data, users_path)
+                               data, users_path, data_repo, data_token)
         if isinstance(reply, tuple):
             if len(reply) == 3:
                 reply, parse_mode, inline = reply
@@ -538,7 +564,7 @@ def process(token, admins, data, users_sha, users_path, state_file, offset,
             state_sha=None, repo=None, data_token=None):
     updates = get_updates(token, offset=offset, timeout=0)
     for u in updates:
-        process_update(u, token, admins, data, users_path)
+        process_update(u, token, admins, data, users_path, repo, data_token)
     if updates:
         try:
             users_sha = save_users(users_path, data, users_sha,
@@ -579,7 +605,8 @@ def cmd_loop(args):
         try:
             updates = get_updates(args.token, offset=offset, timeout=30)
             for u in updates:
-                process_update(u, args.token, admins, data, args.users)
+                process_update(u, args.token, admins, data, args.users,
+                               args.data_repo, args.data_token)
             if updates:
                 users_sha = save_users(args.users, data, users_sha,
                                        repo=args.data_repo, token=args.data_token)
