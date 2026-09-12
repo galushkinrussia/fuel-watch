@@ -117,7 +117,8 @@ REMOVE_KEYBOARD = {"remove_keyboard": True}
 
 
 def get_me(token):
-    return _tg("getMe", token)
+    data = _tg("getMe", token)
+    return data.get("result", {})
 
 
 def set_commands(token):
