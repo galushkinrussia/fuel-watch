@@ -86,10 +86,11 @@ def save_state(path, state):
 
 
 def active_users(users):
-    """Пользователи с заданными координатами и темой (готовые к мониторингу)."""
+    """Пользователи с координатами, темой и включёнными уведомлениями."""
     out = {}
     for uid, u in users.get("users", {}).items():
-        if u.get("lat") is not None and u.get("lon") is not None and u.get("topic"):
+        if (u.get("lat") is not None and u.get("lon") is not None
+                and u.get("topic") and u.get("enabled", True)):
             out[uid] = u
     return out
 

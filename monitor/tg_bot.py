@@ -62,6 +62,7 @@ HELP_TEXT = (
     "  /loc — отправить геолокацию\n"
     "  /set radius 8 — радиус поиска, км\n"
     "  /set fuel 92 95 — марки топлива\n"
+    "  /notify — вкл/выкл уведомления о заправках\n"
     "  /status — показать настройки\n"
     "  /topic — тема push-уведомлений\n"
     "  /help — помощь\n\n"
@@ -122,6 +123,7 @@ def set_commands(token):
         {"command": "start", "description": "Приветствие"},
         {"command": "invite", "description": "Активировать приглашение"},
         {"command": "loc", "description": "Отправить геолокацию"},
+        {"command": "notify", "description": "Вкл/выкл уведомления"},
         {"command": "status", "description": "Мои настройки"},
         {"command": "topic", "description": "Тема push-уведомлений"},
         {"command": "set", "description": "Задать настройку"},
@@ -206,6 +208,7 @@ def register_user(data, user_id, username):
             "radius": 8,
             "fuel": ["92", "95"],
             "topic": generate_topic(),
+            "enabled": True,
             "registered_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
     elif not data["users"][uid].get("topic"):
@@ -260,9 +263,15 @@ def format_user(user):
     lines.append(f"  lon = {user.get('lon')}")
     lines.append(f"  radius = {user.get('radius')}")
     lines.append(f"  fuel = {' '.join(user.get('fuel') or [])}")
-    active = user.get("lat") is not None and user.get("lon") is not None and user.get("topic")
+    enabled = user.get("enabled", True)
+    lines.append(f"  уведомления = {'вкл' if enabled else 'выкл'}")
     lines.append("")
-    lines.append("Статус: " + ("✅ активен (уведомления идут)" if active else "⚠️ отправьте геолокацию /loc"))
+    if user.get("lat") is None or user.get("lon") is None:
+        lines.append("Статус: ⚠️ отправьте геолокацию /loc")
+    elif not enabled:
+        lines.append("Статус: ⏸ уведомления выключены (/notify — включить)")
+    else:
+        lines.append("Статус: ✅ активен (уведомления идут)")
     return "\n".join(lines)
 
 
@@ -354,6 +363,12 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
                 f"Подпишитесь в приложении или откройте:\n"
                 f"<a href=\"https://ntfy.sh/{topic}\">https://ntfy.sh/{topic}</a>",
                 "HTML")
+
+    if t.startswith("/notify") or t == "notify":
+        enabled = not user.get("enabled", True)
+        user["enabled"] = enabled
+        data["users"][uid] = user
+        return ("Уведомления о заправках: " + ("включены ✅" if enabled else "выключены ⏸"))
 
     if t.startswith("/setup"):
         set_commands(token)
