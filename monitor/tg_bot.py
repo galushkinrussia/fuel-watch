@@ -58,12 +58,13 @@ SETTINGS = {
 
 HELP_TEXT = (
     "Мои настройки:\n"
-    "  /status — показать\n"
+    "  /loc — отправить геолокацию (вместо ввода координат)\n"
     "  /set lat 48.700\n"
     "  /set lon 44.500\n"
     "  /set radius 8\n"
     "  /set fuel 92 95\n"
     "  /set topic <моя-тема>\n"
+    "  /status — показать\n"
     "  /help — помощь\n\n"
     "Уведомления приходят через ntfy: установите приложение и подпишитесь "
     "на свою тему (она задаётся командой /set topic)."
@@ -100,14 +101,26 @@ def get_updates(token, offset=None, timeout=0):
     return _tg("getUpdates", token, params, timeout=timeout + 20).get("result", [])
 
 
-def send_message(token, chat_id, text):
-    _tg("sendMessage", token, {"chat_id": chat_id, "text": text})
+def send_message(token, chat_id, text, reply_markup=None):
+    params = {"chat_id": chat_id, "text": text}
+    if reply_markup is not None:
+        params["reply_markup"] = json.dumps(reply_markup)
+    _tg("sendMessage", token, params)
+
+
+LOCATION_KEYBOARD = {
+    "keyboard": [[{"text": "📍 Отправить геолокацию", "request_location": True}]],
+    "resize_keyboard": True,
+    "one_time_keyboard": True,
+}
+REMOVE_KEYBOARD = {"remove_keyboard": True}
 
 
 def set_commands(token):
     commands = [
         {"command": "start", "description": "Приветствие"},
         {"command": "invite", "description": "Активировать приглашение"},
+        {"command": "loc", "description": "Отправить геолокацию"},
         {"command": "status", "description": "Мои настройки"},
         {"command": "set", "description": "Задать настройку"},
         {"command": "help", "description": "Помощь"},
@@ -168,7 +181,9 @@ def extract_message(update):
     user = msg.get("from") or {}
     user_id = user.get("id")
     username = user.get("username") or user.get("first_name") or ""
-    return text, chat_id, user_id, username
+    loc = msg.get("location")
+    location = (loc.get("latitude"), loc.get("longitude")) if loc else None
+    return text, chat_id, user_id, username, location
 
 
 def is_admin(user_id, admins):
@@ -241,6 +256,27 @@ def format_user(user):
     lines.append("")
     lines.append("Статус: " + ("✅ активен (уведомления идут)" if active else "⚠️ задайте lat, lon и topic"))
     return "\n".join(lines)
+
+
+def handle_location(data, user_id, location):
+    """Записывает геолокацию пользователя в lat/lon."""
+    uid = str(user_id)
+    user = data["users"].get(uid)
+    if not user:
+        return REGISTER_PROMPT, None
+    lat, lon = location
+    user["lat"] = lat
+    user["lon"] = lon
+    data["users"][uid] = user
+    return (f"OK: координаты заданы\nlat = {lat}\nlon = {lon}", REMOVE_KEYBOARD)
+
+
+def handle_loc_command(data, user_id):
+    """Отправляет клавиатуру с кнопкой геолокации."""
+    uid = str(user_id)
+    if uid not in data["users"]:
+        return REGISTER_PROMPT, None
+    return "Отправьте вашу геолокацию, нажав кнопку ниже 👇", LOCATION_KEYBOARD
 
 
 def handle_command(text, chat_id, user_id, username, admins, token, data, users_path):
@@ -316,20 +352,33 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
 
 # --- Режимы запуска ---------------------------------------------------------
 
+def process_update(update, token, admins, data, users_path):
+    """Обрабатывает одно обновление (текст или геолокацию) и отправляет ответ."""
+    text, chat_id, user_id, username, location = extract_message(update)
+    if not chat_id:
+        return
+    reply_markup = None
+    if location:
+        print(f"[{time.strftime('%H:%M:%S')}] от {user_id}: геолокация")
+        reply, reply_markup = handle_location(data, user_id, location)
+    elif text.startswith("/loc") or text == "loc":
+        print(f"[{time.strftime('%H:%M:%S')}] от {user_id}: {text!r}")
+        reply, reply_markup = handle_loc_command(data, user_id)
+    else:
+        print(f"[{time.strftime('%H:%M:%S')}] от {user_id}: {text!r}")
+        reply = handle_command(text, chat_id, user_id, username, admins, token,
+                               data, users_path)
+    try:
+        send_message(token, chat_id, reply, reply_markup=reply_markup)
+    except Exception as e:
+        print(f"  -> send FAIL: {e}")
+
+
 def process(token, admins, data, users_sha, users_path, state_file, offset,
             repo=None, data_token=None):
     updates = get_updates(token, offset=offset, timeout=0)
     for u in updates:
-        text, chat_id, user_id, username = extract_message(u)
-        if not text or not chat_id:
-            continue
-        print(f"[{time.strftime('%H:%M:%S')}] от {user_id}: {text!r}")
-        reply = handle_command(text, chat_id, user_id, username, admins, token,
-                               data, users_path)
-        try:
-            send_message(token, chat_id, reply)
-        except Exception as e:
-            print(f"  -> send FAIL: {e}")
+        process_update(u, token, admins, data, users_path)
     if updates:
         try:
             users_sha = save_users(users_path, data, users_sha,
@@ -373,16 +422,7 @@ def cmd_loop(args):
         try:
             updates = get_updates(args.token, offset=offset, timeout=30)
             for u in updates:
-                text, chat_id, user_id, username = extract_message(u)
-                if not text or not chat_id:
-                    continue
-                print(f"[{time.strftime('%H:%M:%S')}] от {user_id}: {text!r}")
-                reply = handle_command(text, chat_id, user_id, username,
-                                       admins, args.token, data, args.users)
-                try:
-                    send_message(args.token, chat_id, reply)
-                except Exception as e:
-                    print(f"  -> send FAIL: {e}")
+                process_update(u, args.token, admins, data, args.users)
             if updates:
                 users_sha = save_users(args.users, data, users_sha,
                                        repo=args.data_repo, token=args.data_token)
