@@ -62,11 +62,11 @@ HELP_TEXT = (
     "  /loc — отправить геолокацию\n"
     "  /set radius 8 — радиус поиска, км\n"
     "  /set fuel 92 95 — марки топлива\n"
-    "  /status — показать (в т.ч. вашу тему ntfy)\n"
+    "  /status — показать настройки\n"
+    "  /topic — тема push-уведомлений\n"
     "  /help — помощь\n\n"
     "Координаты можно ввести и вручную: /set lat …, /set lon …\n"
-    "Тема ntfy создаётся автоматически — смотрите её в /status.\n"
-    "Уведомления приходят в этот чат и в приложение ntfy."
+    "Уведомления приходят в этот чат и в приложение."
 )
 
 ADMIN_HELP = (
@@ -123,6 +123,7 @@ def set_commands(token):
         {"command": "invite", "description": "Активировать приглашение"},
         {"command": "loc", "description": "Отправить геолокацию"},
         {"command": "status", "description": "Мои настройки"},
+        {"command": "topic", "description": "Тема push-уведомлений"},
         {"command": "set", "description": "Задать настройку"},
         {"command": "help", "description": "Помощь"},
     ]
@@ -230,9 +231,8 @@ def redeem_invite(data, user_id, username, code):
         return False, "Этот код уже использован."
     user = register_user(data, user_id, username)
     inv["used_by"] = str(user_id)
-    return True, (f"Вы зарегистрированы! Ваша тема ntfy: {user['topic']}\n"
-                  f"Подпишитесь на неё в приложении ntfy.\n"
-                  f"Затем отправьте геолокацию: /loc\n" + HELP_TEXT)
+    return True, ("Вы зарегистрированы!\n"
+                  "Отправьте геолокацию: /loc\n" + HELP_TEXT)
 
 
 def parse_set(text):
@@ -260,10 +260,9 @@ def format_user(user):
     lines.append(f"  lon = {user.get('lon')}")
     lines.append(f"  radius = {user.get('radius')}")
     lines.append(f"  fuel = {' '.join(user.get('fuel') or [])}")
-    lines.append(f"  topic = {user.get('topic')}")
     active = user.get("lat") is not None and user.get("lon") is not None and user.get("topic")
     lines.append("")
-    lines.append("Статус: " + ("✅ активен (уведомления идут)" if active else "⚠️ задайте lat, lon и topic"))
+    lines.append("Статус: " + ("✅ активен (уведомления идут)" if active else "⚠️ отправьте геолокацию /loc"))
     return "\n".join(lines)
 
 
@@ -300,8 +299,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
         parts = t.split()
         if admin and not registered:
             user = register_user(data, user_id, username)
-            return (f"Вы админ и зарегистрированы автоматически.\n"
-                    f"Ваша тема ntfy: {user['topic']}\n" + HELP_TEXT)
+            return "Вы админ и зарегистрированы автоматически.\n" + HELP_TEXT
         if registered:
             user = register_user(data, user_id, username)  # дозаполнит тему, если её нет
             return "С возвращением!\n" + HELP_TEXT
@@ -349,6 +347,13 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
 
     if t.startswith("/status") or t == "status":
         return format_user(user)
+
+    if t.startswith("/topic") or t == "topic":
+        topic = user.get("topic")
+        return (f"Ваша тема push-уведомлений:\n<code>{topic}</code>\n\n"
+                f"Подпишитесь в приложении или откройте:\n"
+                f"<a href=\"https://ntfy.sh/{topic}\">https://ntfy.sh/{topic}</a>",
+                "HTML")
 
     if t.startswith("/setup"):
         set_commands(token)
