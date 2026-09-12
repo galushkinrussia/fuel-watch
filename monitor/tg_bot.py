@@ -1,27 +1,31 @@
 #!/usr/bin/env python3
-"""Телеграм-бот для настройки монитора топлива.
+"""Многопользовательский Telegram-бот для настройки монитора топлива.
 
-Меняет настройки, хранящиеся в GitHub Variables репозитория (LAT, LON,
-RADIUS, FUEL, CHAT_CITY), прямо из чата с ботом в Telegram. После изменения
-следующая итерация fuel-monitor/chat-monitor подхватит новое значение.
+Доступ — только по приглашению. Каждый пользователь хранит СВОИ настройки
+(координаты, радиус, топливо, ntfy-тему) в users.json, который коммитится
+обратно в репозиторий workflow'ом. Монитор (multi_watch.py) обходит всех
+пользователей и шлёт каждому push в его тему.
 
-Команды бота:
-  /start, /help          — список команд
-  /status                — текущие значения переменных
-  /set <ключ> <значение> — изменить: lat, lon, radius, fuel, city
-  /setup                 — зарегистрировать команды в меню (разово)
+Команды (пользователь):
+  /start                — приветствие / регистрация (для админа — сразу)
+  /invite <код>         — активировать приглашение
+  /status               — мои настройки
+  /set lat 48.700       — задать настройку
+  /set lon 44.500
+  /set radius 8
+  /set fuel 92 95
+  /set topic <тема>     — моя ntfy-тема (как пароль)
+  /help                 — помощь
 
-Как работает: бот читает обновления через long polling (getUpdates с offset),
-обрабатывает команды, обновляет GitHub Variables через REST API и отвечает.
-Режим `once` — для запуска по cron (GitHub Actions + cron-job.org),
-режим `loop` — для постоянного процесса (VPS/ПК).
+Команды (админ):
+  /newinvite            — создать код приглашения
+  /listusers            — список пользователей
 
 Переменные окружения:
   TELEGRAM_BOT_TOKEN — токен бота (обязательно)
-  TELEGRAM_ADMIN     — user_id владельца (только ему разрешено менять настройки)
-  GH_TOKEN           — GitHub PAT с правами на Variables (обязательно)
-  GH_REPO            — "owner/repo" (по умолчанию galushkinrussia/fuel-watch)
-  TGBOT_STATE        — файл состояния (offset long polling)
+  TELEGRAM_ADMIN     — user_id админа (или список через запятую)
+  USERS_FILE         — путь к users.json (по умолчанию ../users.json)
+  TGBOT_STATE        — файл состояния offset (по умолчанию tg_bot_state.json)
 
 Зависимости: только стандартная библиотека Python 3.
 """
@@ -29,32 +33,48 @@ RADIUS, FUEL, CHAT_CITY), прямо из чата с ботом в Telegram. П
 import argparse
 import json
 import os
+import secrets
 import sys
 import time
 import urllib.parse
 import urllib.request
 
 TG_API = "https://api.telegram.org"
-GH_API = "https://api.github.com"
 
-DEFAULT_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tg_bot_state.json")
+DEFAULT_USERS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "users.json")
+DEFAULT_STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tg_bot_state.json")
 
-KEY_MAP = {
-    "lat": "LAT",
-    "lon": "LON",
-    "radius": "RADIUS",
-    "fuel": "FUEL",
-    "city": "CHAT_CITY",
+# ключ команды -> (поле в users.json, тип)
+SETTINGS = {
+    "lat": ("lat", float),
+    "lon": ("lon", float),
+    "radius": ("radius", float),
+    "fuel": ("fuel", list),
+    "topic": ("topic", str),
 }
 
 HELP_TEXT = (
-    "Настройки монитора топлива:\n"
-    "  /status — показать текущие\n"
+    "Мои настройки:\n"
+    "  /status — показать\n"
     "  /set lat 48.700\n"
     "  /set lon 44.500\n"
     "  /set radius 8\n"
     "  /set fuel 92 95\n"
-    "  /set city volgograd"
+    "  /set topic <моя-тема>\n"
+    "  /help — помощь\n\n"
+    "Уведомления приходят через ntfy: установите приложение и подпишитесь "
+    "на свою тему (она задаётся командой /set topic)."
+)
+
+ADMIN_HELP = (
+    "\n\nАдмин:\n"
+    "  /newinvite — создать код приглашения\n"
+    "  /listusers — список пользователей"
+)
+
+REGISTER_PROMPT = (
+    "Бот доступен по приглашению. Получите код у администратора и "
+    "отправьте: /invite <код>"
 )
 
 
@@ -83,56 +103,97 @@ def send_message(token, chat_id, text):
 
 def set_commands(token):
     commands = [
-        {"command": "status", "description": "Текущие настройки монитора"},
-        {"command": "set", "description": "Изменить настройку: lat/lon/radius/fuel/city"},
+        {"command": "start", "description": "Приветствие"},
+        {"command": "invite", "description": "Активировать приглашение"},
+        {"command": "status", "description": "Мои настройки"},
+        {"command": "set", "description": "Задать настройку"},
         {"command": "help", "description": "Помощь"},
     ]
     _tg("setMyCommands", token, {"commands": json.dumps(commands)})
 
 
-# --- GitHub Variables -------------------------------------------------------
+# --- Хранилище users.json ---------------------------------------------------
 
-def _gh(method, url, token, body=None):
-    data = None
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    if body is not None:
-        data = json.dumps(body).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    with urllib.request.urlopen(req, timeout=20) as r:
-        raw = r.read().decode("utf-8")
-        return json.loads(raw) if raw else {}
+def load_users(path):
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"invites": {}, "users": {}}
 
 
-def gh_list_vars(repo, token):
-    data = _gh("GET", f"{GH_API}/repos/{repo}/actions/variables", token)
-    return {v["name"]: v["value"] for v in data.get("variables", [])}
+def save_users(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def gh_set_var(repo, token, name, value):
-    url = f"{GH_API}/repos/{repo}/actions/variables/{urllib.parse.quote(name)}"
-    try:
-        _gh("PATCH", url, token, {"name": name, "value": value})
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            _gh("POST", f"{GH_API}/repos/{repo}/actions/variables", token,
-                {"name": name, "value": value})
-        else:
-            raise
+def load_state(path):
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
 
 
-# --- Обработка команд -------------------------------------------------------
+def save_state(path, state):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+
+
+# --- Команды ----------------------------------------------------------------
 
 def extract_message(update):
     msg = update.get("message") or {}
     text = (msg.get("text") or "").strip()
     chat_id = (msg.get("chat") or {}).get("id")
-    user_id = (msg.get("from") or {}).get("id")
-    return text, chat_id, user_id
+    user = msg.get("from") or {}
+    user_id = user.get("id")
+    username = user.get("username") or user.get("first_name") or ""
+    return text, chat_id, user_id, username
+
+
+def is_admin(user_id, admins):
+    return admins and str(user_id) in admins
+
+
+def register_user(data, user_id, username):
+    uid = str(user_id)
+    if uid not in data["users"]:
+        data["users"][uid] = {
+            "username": username,
+            "lat": None,
+            "lon": None,
+            "radius": 8,
+            "fuel": ["92", "95"],
+            "topic": None,
+            "registered_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    return data["users"][uid]
+
+
+def new_invite(data):
+    code = secrets.token_hex(4)
+    data["invites"][code] = {
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "used_by": None,
+    }
+    return code
+
+
+def redeem_invite(data, user_id, username, code):
+    code = code.strip().lower()
+    inv = data["invites"].get(code)
+    if not inv:
+        return False, "Неверный код приглашения."
+    if inv.get("used_by") is not None:
+        return False, "Этот код уже использован."
+    register_user(data, user_id, username)
+    inv["used_by"] = str(user_id)
+    return True, "Вы зарегистрированы! Задайте координаты и тему:\n" + HELP_TEXT
 
 
 def parse_set(text):
@@ -140,88 +201,132 @@ def parse_set(text):
     if len(parts) >= 3 and parts[0].lower() in ("/set", "set"):
         key = parts[1].lower()
         value = " ".join(parts[2:])
-        if key in KEY_MAP:
+        if key in SETTINGS:
             return key, value
     return None, None
 
 
-def handle_command(text, user_id, allowed_user, token, repo, gh_token):
+def apply_set(user, key, value):
+    field, cast = SETTINGS[key]
+    try:
+        user[field] = value.split() if cast is list else cast(value)
+        return True, f"OK: {key} = {value}"
+    except (ValueError, TypeError):
+        return False, f"Неверное значение для {key}: {value}"
+
+
+def format_user(user):
+    lines = ["Мои настройки:"]
+    lines.append(f"  lat = {user.get('lat')}")
+    lines.append(f"  lon = {user.get('lon')}")
+    lines.append(f"  radius = {user.get('radius')}")
+    lines.append(f"  fuel = {' '.join(user.get('fuel') or [])}")
+    lines.append(f"  topic = {user.get('topic')}")
+    active = user.get("lat") is not None and user.get("lon") is not None and user.get("topic")
+    lines.append("")
+    lines.append("Статус: " + ("✅ активен (уведомления идут)" if active else "⚠️ задайте lat, lon и topic"))
+    return "\n".join(lines)
+
+
+def handle_command(text, chat_id, user_id, username, admins, token, data, users_path):
     t = text.strip()
+    uid = str(user_id)
+    admin = is_admin(user_id, admins)
+    user = data["users"].get(uid)
+    registered = user is not None
 
-    if allowed_user and str(user_id) != str(allowed_user):
-        return "У вас нет доступа к изменению настроек."
+    # --- служебные команды (доступны всегда) ---
+    if t.startswith("/start"):
+        parts = t.split()
+        if admin and not registered:
+            register_user(data, user_id, username)
+            return "Вы админ и зарегистрированы автоматически.\n" + HELP_TEXT
+        if registered:
+            return "С возвращением!\n" + HELP_TEXT
+        if len(parts) >= 2:  # /start <code>
+            ok, msg = redeem_invite(data, user_id, username, parts[1])
+            return msg
+        return "Привет!\n" + REGISTER_PROMPT
 
-    if t.startswith("/start") or t.startswith("/help") or t == "help":
-        return HELP_TEXT
+    if t.startswith("/invite") or t.startswith("invite"):
+        if registered:
+            return "Вы уже зарегистрированы."
+        parts = t.split()
+        if len(parts) < 2:
+            return "Формат: /invite <код>"
+        ok, msg = redeem_invite(data, user_id, username, parts[1])
+        return msg
 
-    if t.startswith("/status") or t == "status":
-        try:
-            vars_ = gh_list_vars(repo, gh_token)
-        except Exception as e:
-            return f"Не удалось прочитать переменные: {e}"
-        lines = ["Текущие настройки:"]
-        for key, name in KEY_MAP.items():
-            lines.append(f"  {key} = {vars_.get(name, '—')}")
+    if t.startswith("/help") or t == "help":
+        return HELP_TEXT + (ADMIN_HELP if admin else "")
+
+    # --- админские команды ---
+    if t.startswith("/newinvite"):
+        if not admin:
+            return "Недостаточно прав."
+        code = new_invite(data)
+        return f"Код приглашения: {code}\nПередайте его человеку, он отправит боту /invite {code}"
+
+    if t.startswith("/listusers"):
+        if not admin:
+            return "Недостаточно прав."
+        if not data["users"]:
+            return "Пользователей нет."
+        lines = ["Пользователи:"]
+        for u, us in data["users"].items():
+            act = "✅" if (us.get("lat") and us.get("lon") and us.get("topic")) else "—"
+            lines.append(f"  {act} {u} ({us.get('username')})")
         return "\n".join(lines)
 
+    # --- пользовательские команды (нужна регистрация) ---
+    if not registered:
+        return REGISTER_PROMPT
+
+    if t.startswith("/status") or t == "status":
+        return format_user(user)
+
     if t.startswith("/setup"):
-        try:
-            set_commands(token)
-            return "Команды зарегистрированы в меню."
-        except Exception as e:
-            return f"Ошибка регистрации команд: {e}"
+        set_commands(token)
+        return "Команды зарегистрированы в меню."
 
     key, value = parse_set(t)
     if key:
-        name = KEY_MAP[key]
-        try:
-            gh_set_var(repo, gh_token, name, value)
-            return f"OK: {key} → {value} (переменная {name})"
-        except Exception as e:
-            return f"Не удалось записать {key}: {e}"
+        ok, msg = apply_set(user, key, value)
+        if ok:
+            data["users"][uid] = user
+        return msg
 
     return "Не понял команду. Напишите /help."
 
 
 # --- Режимы запуска ---------------------------------------------------------
 
-def load_state(state_file):
-    if os.path.exists(state_file):
-        try:
-            with open(state_file, encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {}
-
-
-def save_state(state_file, state):
-    with open(state_file, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
-
-
-def process(token, repo, gh_token, allowed_user, offset, state_file):
+def process(token, admins, data, users_path, state_file, offset):
     updates = get_updates(token, offset=offset, timeout=0)
     for u in updates:
-        text, chat_id, user_id = extract_message(u)
+        text, chat_id, user_id, username = extract_message(u)
         if not text or not chat_id:
             continue
         print(f"[{time.strftime('%H:%M:%S')}] от {user_id}: {text!r}")
-        reply = handle_command(text, user_id, allowed_user, token, repo, gh_token)
+        reply = handle_command(text, chat_id, user_id, username, admins, token,
+                               data, users_path)
         try:
             send_message(token, chat_id, reply)
         except Exception as e:
             print(f"  -> send FAIL: {e}")
+    save_users(users_path, data)
     new_offset = max((u["update_id"] for u in updates), default=offset) + 1 \
         if updates else offset
-    state = {"offset": new_offset, "updated": time.strftime("%Y-%m-%d %H:%M:%S")}
-    save_state(state_file, state)
+    save_state(state_file, {"offset": new_offset,
+                            "updated": time.strftime("%Y-%m-%d %H:%M:%S")})
     return len(updates)
 
 
 def cmd_once(args):
     offset = load_state(args.state).get("offset")
-    n = process(args.token, args.repo, args.gh_token, args.admin, offset, args.state)
+    data = load_users(args.users)
+    admins = parse_admins(args.admin)
+    n = process(args.token, admins, data, args.users, args.state, offset)
     print(f"обработано обновлений: {n}")
     return 0
 
@@ -229,25 +334,28 @@ def cmd_once(args):
 def cmd_loop(args):
     state = load_state(args.state)
     offset = state.get("offset")
+    admins = parse_admins(args.admin)
     print("Бот запущен (loop). Ctrl+C для выхода.")
     while True:
+        data = load_users(args.users)
         try:
             updates = get_updates(args.token, offset=offset, timeout=30)
             for u in updates:
-                text, chat_id, user_id = extract_message(u)
+                text, chat_id, user_id, username = extract_message(u)
                 if not text or not chat_id:
                     continue
                 print(f"[{time.strftime('%H:%M:%S')}] от {user_id}: {text!r}")
-                reply = handle_command(text, user_id, args.admin, args.token,
-                                       args.repo, args.gh_token)
+                reply = handle_command(text, chat_id, user_id, username,
+                                       admins, args.token, data, args.users)
                 try:
                     send_message(args.token, chat_id, reply)
                 except Exception as e:
                     print(f"  -> send FAIL: {e}")
+            save_users(args.users, data)
             if updates:
                 offset = max(u["update_id"] for u in updates) + 1
-                state = {"offset": offset, "updated": time.strftime("%Y-%m-%d %H:%M:%S")}
-                save_state(args.state, state)
+                save_state(args.state, {"offset": offset,
+                                        "updated": time.strftime("%Y-%m-%d %H:%M:%S")})
         except KeyboardInterrupt:
             break
         except Exception as e:
@@ -257,15 +365,14 @@ def cmd_loop(args):
 
 
 def main():
-    p = argparse.ArgumentParser(description="Телеграм-бот для настройки монитора")
+    p = argparse.ArgumentParser(description="Многопользовательский Telegram-бот")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def add_common(sp):
         sp.add_argument("--token", help="токен бота (или TELEGRAM_BOT_TOKEN)")
-        sp.add_argument("--gh-token", help="GitHub PAT (или GH_TOKEN)")
-        sp.add_argument("--repo", default="galushkinrussia/fuel-watch")
-        sp.add_argument("--admin", help="user_id владельца (или TELEGRAM_ADMIN)")
-        sp.add_argument("--state", default=DEFAULT_STATE_FILE)
+        sp.add_argument("--admin", help="user_id админа(ов) через запятую (или TELEGRAM_ADMIN)")
+        sp.add_argument("--users", default=DEFAULT_USERS, help="файл пользователей")
+        sp.add_argument("--state", default=DEFAULT_STATE, help="файл состояния")
 
     op = sub.add_parser("once", help="один проход (для cron/облака)")
     add_common(op)
@@ -281,10 +388,6 @@ def main():
         print("Ошибка: не задан токен бота (--token или TELEGRAM_BOT_TOKEN)",
               file=sys.stderr)
         return 2
-    if not args.gh_token:
-        print("Ошибка: не задан GitHub PAT (--gh-token или GH_TOKEN)",
-              file=sys.stderr)
-        return 2
     return args.func(args) or 0
 
 
@@ -294,10 +397,16 @@ def _env_override(args):
         if v is not None and v != "":
             setattr(args, name, v)
     apply("token", "TELEGRAM_BOT_TOKEN")
-    apply("gh_token", "GH_TOKEN")
-    apply("repo", "GH_REPO")
     apply("admin", "TELEGRAM_ADMIN")
+    apply("users", "USERS_FILE")
     apply("state", "TGBOT_STATE")
+
+
+def parse_admins(raw):
+    """'123,456' -> {'123','456'}"""
+    if not raw:
+        return set()
+    return {s.strip() for s in str(raw).split(",") if s.strip()}
 
 
 if __name__ == "__main__":
