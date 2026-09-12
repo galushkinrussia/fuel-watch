@@ -131,12 +131,16 @@ Workflow запускаются **только вручную** (`workflow_dispa
 | `TOPIC` | `fuelwatch-...` | ntfy-тема топлива |
 | `CHAT_CITY` | `volgograd` | slug города для чата |
 | `CHAT_TOPIC` | `fuelwatch-chat-...` | ntfy-тема чата |
+| `GH_REPO` | `galushkinrussia/fuel-watch` | репозиторий для бота настройки |
+| `TELEGRAM_ADMIN` | `123456` | ваш `user_id` (кто может менять настройки) |
 
 Секреты (`Secrets`):
 
 | Секрет | Назначение |
 |---|---|
 | `LLM_API_KEY` | ключ DeepSeek (или др. OpenAI-совместимого) для сводки чата |
+| `TELEGRAM_BOT_TOKEN` | токен Telegram-бота |
+| `GH_PAT` | GitHub PAT с правами на Variables репозитория |
 
 ### Состояние в репозитории
 
@@ -149,7 +153,46 @@ Workflow запускаются **только вручную** (`workflow_dispa
 
 ---
 
-## 5. Android-приложение (Kotlin)
+## 5. Бот Telegram для настройки (`tg_bot.py`)
+
+Меняет настройки монитора (координаты, радиус, топливо, город) прямо из чата
+с ботом в Telegram — не заходя в GitHub. Боты Telegram доступны частным лицам
+без какого-либо статуса.
+
+```
+/help            — помощь
+/status          — текущие значения переменных
+/set lat 48.700  — изменить настройку
+/set lon 44.500
+/set radius 8
+/set fuel 92 95
+/set city volgograd
+```
+
+Ключи соответствуют переменным GitHub: `lat`→`LAT`, `lon`→`LON`,
+`radius`→`RADIUS`, `fuel`→`FUEL`, `city`→`CHAT_CITY`. После изменения
+следующая итерация `fuel-monitor`/`chat-monitor` подхватит значение.
+
+### Подготовка (разово)
+
+1. Создайте бота у `@BotFather` (`/newbot`) и возьмите токен.
+2. В GitHub добавьте секрет `TELEGRAM_BOT_TOKEN` (токен) и `GH_PAT`
+   (PAT с правами на **Variables**), переменные `GH_REPO` и `TELEGRAM_ADMIN`
+   (ваш `user_id` — узнайте у `@userinfobot`).
+3. Отправьте боту `/setup` — зарегистрировать команды в меню.
+
+### Запуск
+
+- **Облако** (как остальное): создайте в cron-job.org задание POST на
+  `.../actions/workflows/tg-bot-config.yml/dispatches` (интервал ~1 мин).
+- **Локально/VPS** (постоянный процесс):
+  ```bash
+  python3 monitor/tg_bot.py loop --token <токен> --gh-token <PAT> --admin <user_id>
+  ```
+
+---
+
+## 6. Android-приложение (Kotlin)
 
 Автономное: фоновый сервис (`MonitorService`) опрашивает API прямо с телефона,
 показывает локальные уведомления. Бэкенд и Firebase не нужны.
