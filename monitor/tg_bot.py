@@ -43,6 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import data_store as ds
 
 TG_API = "https://api.telegram.org"
+BOT_USERNAME = "give_me_fuel_give_me_fire_bot"
 
 DEFAULT_USERS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "users.json")
 DEFAULT_STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tg_bot_state.json")
@@ -114,11 +115,6 @@ LOCATION_KEYBOARD = {
     "one_time_keyboard": True,
 }
 REMOVE_KEYBOARD = {"remove_keyboard": True}
-
-
-def get_me(token):
-    data = _tg("getMe", token)
-    return data.get("result", {})
 
 
 def set_commands(token):
@@ -331,16 +327,8 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
         if not admin:
             return "Недостаточно прав."
         code = new_invite(data)
-        username = None
-        try:
-            username = get_me(token).get("username")
-        except Exception:
-            pass
-        if username:
-            head = (f"Привет!\nАдрес бота: "
-                    f"<a href=\"https://t.me/{username}\">@{username}</a>\n\n")
-        else:
-            head = "Привет!\n\n"
+        head = (f"Привет!\nАдрес бота: "
+                f"<a href=\"https://t.me/{BOT_USERNAME}\">@{BOT_USERNAME}</a>\n\n")
         return (head + f"Активируй приглашение командой:\n<code>/invite {code}</code>",
                 "HTML")
 
