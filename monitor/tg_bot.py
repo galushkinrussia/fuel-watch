@@ -350,7 +350,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
 
     if t.startswith("/topic") or t == "topic":
         topic = user.get("topic")
-        return (f"Ваша тема push-уведомлений:\n<code>{topic}</code>\n\n"
+        return (f"Ваша тема push-уведомлений:\n<pre>{topic}</pre>\n"
                 f"Подпишитесь в приложении или откройте:\n"
                 f"<a href=\"https://ntfy.sh/{topic}\">https://ntfy.sh/{topic}</a>",
                 "HTML")
