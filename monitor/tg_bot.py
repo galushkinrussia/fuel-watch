@@ -116,6 +116,10 @@ LOCATION_KEYBOARD = {
 REMOVE_KEYBOARD = {"remove_keyboard": True}
 
 
+def get_me(token):
+    return _tg("getMe", token)
+
+
 def set_commands(token):
     commands = [
         {"command": "start", "description": "Приветствие"},
@@ -326,8 +330,17 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
         if not admin:
             return "Недостаточно прав."
         code = new_invite(data)
-        return (f"Код приглашения:\n<code>{code}</code>\n\n"
-                f"Передайте его человеку — он отправит боту:\n<code>/invite {code}</code>",
+        username = None
+        try:
+            username = get_me(token).get("username")
+        except Exception:
+            pass
+        if username:
+            head = (f"Привет!\nАдрес бота: "
+                    f"<a href=\"https://t.me/{username}\">@{username}</a>\n\n")
+        else:
+            head = "Привет!\n\n"
+        return (head + f"Активируй приглашение командой:\n<code>/invite {code}</code>",
                 "HTML")
 
     if t.startswith("/listusers"):
