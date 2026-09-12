@@ -27,13 +27,28 @@ import json
 import os
 import sys
 import time
+import urllib.parse
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fuel_watch as fw
 import data_store as ds
 
+TG_API = "https://api.telegram.org"
+
 DEFAULT_USERS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "users.json")
 DEFAULT_STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "users_state.json")
+
+
+def send_telegram(token, chat_id, text):
+    """Дублирует уведомление в чат пользователя с ботом (chat_id = user_id)."""
+    if not token:
+        return
+    url = f"{TG_API}/bot{token}/sendMessage"
+    data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode("utf-8")
+    req = urllib.request.Request(url, data=data, method="POST")
+    with urllib.request.urlopen(req, timeout=20) as r:
+        r.read()
 
 
 def load_users(path, repo=None, token=None):
@@ -79,7 +94,7 @@ def active_users(users):
     return out
 
 
-def poll_user(uid, u, state):
+def poll_user(uid, u, state, tg_token=None):
     wanted = u.get("fuel") or []
     stations, updated = fw.fetch_stations(u["lat"], u["lon"], u.get("radius", 8))
     for s in stations:
@@ -98,6 +113,12 @@ def poll_user(uid, u, state):
                 print(f"  -> notify ok: {fw.station_label(s)}")
             except Exception as e:
                 print(f"  -> ntfy FAIL: {e}")
+            if tg_token:
+                try:
+                    send_telegram(tg_token, uid, "⛽ Бензин появился\n\n" + text)
+                    print(f"  -> telegram ok: {fw.station_label(s)}")
+                except Exception as e:
+                    print(f"  -> telegram FAIL: {e}")
         elif not avail and prev:
             print(f"  (закончился) {fw.station_label(s)}")
         state[osm] = {
@@ -108,7 +129,7 @@ def poll_user(uid, u, state):
     return updated, len(stations)
 
 
-def poll_all(users_path, state_path, repo=None, token=None):
+def poll_all(users_path, state_path, repo=None, token=None, tg_token=None):
     users = load_users(users_path, repo=repo, token=token)
     state = load_state(state_path)
     actives = active_users(users)
@@ -117,7 +138,7 @@ def poll_all(users_path, state_path, repo=None, token=None):
     for uid, u in actives.items():
         ustate = state.setdefault(str(uid), {})
         try:
-            updated, n = poll_user(uid, u, ustate)
+            updated, n = poll_user(uid, u, ustate, tg_token=tg_token)
             print(f"[{time.strftime('%H:%M:%S')}] user {uid}: "
                   f"updated={updated}, станций={n}")
         except Exception as e:
@@ -136,7 +157,8 @@ def _storage_note(args):
 
 def cmd_once(args):
     print(f"[{time.strftime('%H:%M:%S')}] хранилище users.json: {_storage_note(args)}")
-    n = poll_all(args.users, args.state, repo=args.data_repo, token=args.data_token)
+    n = poll_all(args.users, args.state, repo=args.data_repo, token=args.data_token,
+                 tg_token=args.telegram_token)
     print(f"активных пользователей: {n}")
     return 0
 
@@ -146,7 +168,8 @@ def cmd_loop(args):
     print("Мультимонитор запущен (loop). Ctrl+C для выхода.")
     while True:
         try:
-            poll_all(args.users, args.state, repo=args.data_repo, token=args.data_token)
+            poll_all(args.users, args.state, repo=args.data_repo, token=args.data_token,
+                     tg_token=args.telegram_token)
         except Exception as e:
             print(f"ошибка цикла: {e}")
         try:
@@ -165,6 +188,7 @@ def main():
         sp.add_argument("--state", default=DEFAULT_STATE, help="файл состояния")
         sp.add_argument("--data-repo", help="owner/repo приватного репо с users.json")
         sp.add_argument("--data-token", help="PAT с правами contents")
+        sp.add_argument("--telegram-token", help="токен бота для дубля в Telegram (или TELEGRAM_BOT_TOKEN)")
 
     op = sub.add_parser("once", help="один проход (для cron/облака)")
     add_common(op)
@@ -190,6 +214,7 @@ def _env_override(args):
     apply("interval", "MULTI_INTERVAL")
     apply("data_repo", "DATA_REPO")
     apply("data_token", "DATA_PAT")
+    apply("telegram_token", "TELEGRAM_BOT_TOKEN")
 
 
 if __name__ == "__main__":
