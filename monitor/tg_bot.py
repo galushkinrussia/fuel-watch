@@ -239,13 +239,26 @@ def redeem_invite(data, user_id, username, code):
 
 
 def parse_set(text):
+    """'/set ключ значение [ключ значение ...]' → список пар (ключ, значение)."""
     parts = text.split()
-    if len(parts) >= 3 and parts[0].lower() in ("/set", "set"):
-        key = parts[1].lower()
-        value = " ".join(parts[2:])
-        if key in SETTINGS:
-            return key, value
-    return None, None
+    if len(parts) < 3 or parts[0].lower() not in ("/set", "set"):
+        return None
+    pairs = []
+    i = 1
+    while i < len(parts):
+        key = parts[i].lower()
+        if key not in SETTINGS:
+            return None
+        vals = []
+        j = i + 1
+        while j < len(parts) and parts[j].lower() not in SETTINGS:
+            vals.append(parts[j])
+            j += 1
+        if not vals:
+            return None
+        pairs.append((key, " ".join(vals)))
+        i = j
+    return pairs
 
 
 def apply_set(user, key, value):
@@ -374,12 +387,14 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
         set_commands(token)
         return "Команды зарегистрированы в меню."
 
-    key, value = parse_set(t)
-    if key:
-        ok, msg = apply_set(user, key, value)
-        if ok:
-            data["users"][uid] = user
-        return msg
+    pairs = parse_set(t)
+    if pairs:
+        msgs = []
+        for key, value in pairs:
+            ok, msg = apply_set(user, key, value)
+            msgs.append(msg)
+        data["users"][uid] = user
+        return "\n".join(msgs)
 
     return "Не понял команду. Напишите /help."
 
