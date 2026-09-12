@@ -1,10 +1,18 @@
 __pycache__/
 *.pyc
-monitor/state.json
-monitor/tg_bot_state.json
 monitor.log
 *.apk
 android/.gradle/
 android/app/build/
 android/local.properties
+
+# данные хранятся в приватном репозитории (DATA_REPO), не в публичном коде
 users.json
+users_state.json
+tg_bot_state.json
+chat_state.json
+sends.jsonl
+state.json
+history.jsonl
+monitor/state.json
+monitor/tg_bot_state.json

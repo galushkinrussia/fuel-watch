@@ -24,6 +24,9 @@ import time
 import urllib.parse
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import data_store as ds
+
 API = "https://api.gdebenz.ru"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
@@ -149,19 +152,34 @@ def build_summary(messages):
     return text
 
 
-def load_state(state_file):
+def load_state(state_file, repo=None, token=None):
+    if repo and token:
+        try:
+            data, sha = ds.load_json(repo, state_file, token, default={})
+            return data, sha
+        except Exception as e:
+            print(f"Не удалось прочитать состояние из {repo}: {e}")
+            return {}, None
     if os.path.exists(state_file):
         try:
             with open(state_file, encoding="utf-8") as f:
-                return json.load(f)
+                return json.load(f), None
         except (json.JSONDecodeError, OSError):
             pass
-    return {}
+    return {}, None
 
 
-def save_state(state_file, state):
+def save_state(state_file, state, sha=None, repo=None, token=None):
+    if repo and token:
+        try:
+            return ds.save_json(repo, state_file, token, state, sha,
+                                message="состояние чата")
+        except Exception as e:
+            print(f"  -> save chat state FAIL: {e}")
+            return sha
     with open(state_file, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
+    return None
 
 
 def build_llm_input(messages):
@@ -239,8 +257,8 @@ def summarize_with_llm(text, api_key, base_url=DEFAULT_LLM_BASE_URL,
 
 
 def poll(city, topic, state_file, llm_api_key=None, llm_base_url=None,
-         llm_model=None):
-    state = load_state(state_file)
+         llm_model=None, repo=None, token=None):
+    state, sha = load_state(state_file, repo, token)
     last_id = int(state.get("last_id", 0) or 0)
 
     all_msgs, new = fetch_new_messages(city, last_id)
@@ -275,7 +293,7 @@ def poll(city, topic, state_file, llm_api_key=None, llm_base_url=None,
     state["last_id"] = newest_id
     state["city"] = city
     state["updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    save_state(state_file, state)
+    save_state(state_file, state, sha, repo, token)
 
 
 def main():
@@ -286,6 +304,8 @@ def main():
     op.add_argument("--city", help="slug города (напр. volgograd)")
     op.add_argument("--topic", help="ntfy.sh тема для push")
     op.add_argument("--state", default=DEFAULT_STATE_FILE, help="файл состояния")
+    op.add_argument("--data-repo", help="owner/repo приватного репо с данными")
+    op.add_argument("--data-token", help="PAT с правами contents")
     op.add_argument("--llm-key", help="API-ключ LLM (DeepSeek/OpenAI-совместимый)")
     op.add_argument("--llm-base-url", help="base URL LLM-API")
     op.add_argument("--llm-model", help="название модели")
@@ -307,7 +327,9 @@ def cmd_once(args):
         poll(args.city, args.topic, args.state,
              llm_api_key=getattr(args, "llm_key", None),
              llm_base_url=getattr(args, "llm_base_url", None),
-             llm_model=getattr(args, "llm_model", None))
+             llm_model=getattr(args, "llm_model", None),
+             repo=getattr(args, "data_repo", None),
+             token=getattr(args, "data_token", None))
     except Exception as e:
         print(f"Ошибка сводки чата: {e}")
         return 1
@@ -326,6 +348,8 @@ def _env_override(args):
     apply("city", "CHATWATCH_CITY", str)
     apply("topic", "CHATWATCH_TOPIC", str)
     apply("state", "CHATWATCH_STATE", str)
+    apply("data_repo", "DATA_REPO", str)
+    apply("data_token", "DATA_PAT", str)
     apply("llm_key", "LLM_API_KEY", str)
     apply("llm_base_url", "LLM_BASE_URL", str)
     apply("llm_model", "LLM_MODEL", str)

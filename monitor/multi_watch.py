@@ -95,25 +95,31 @@ def active_users(users):
     return out
 
 
-def _log_send(sends_file, uid, label, fuels, ntfy_ok, telegram_ok):
-    """Дописывает одну строку в журнал отправок (для подсчёта)."""
-    if not sends_file:
+def _log_send(buf, uid, label, fuels, ntfy_ok, telegram_ok):
+    """Добавляет строку журнала отправок в буфер (пишется в конце прохода)."""
+    if buf is None:
         return
-    try:
-        with open(sends_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps({
-                "t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "user": uid,
-                "station": label,
-                "fuel": fuels,
-                "ntfy": ntfy_ok,
-                "telegram": telegram_ok,
-            }, ensure_ascii=False) + "\n")
-    except OSError as e:
-        print(f"  -> запись журнала отправок FAIL: {e}")
+    buf.append(json.dumps({
+        "t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "user": uid,
+        "station": label,
+        "fuel": fuels,
+        "ntfy": ntfy_ok,
+        "telegram": telegram_ok,
+    }, ensure_ascii=False) + "\n")
 
 
-def poll_user(uid, u, state, tg_token=None, sends_file=None):
+def _read_local(path):
+    if path and os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return f.read()
+        except OSError:
+            pass
+    return ""
+
+
+def poll_user(uid, u, state, tg_token=None, sends_buf=None):
     wanted = u.get("fuel") or []
     stations, updated = fw.fetch_stations(u["lat"], u["lon"], u.get("radius", 8))
     for s in stations:
@@ -143,7 +149,7 @@ def poll_user(uid, u, state, tg_token=None, sends_file=None):
                     print(f"  -> telegram ok: {label}")
                 except Exception as e:
                     print(f"  -> telegram FAIL: {e}")
-            _log_send(sends_file, uid, label, fuels, ntfy_ok, telegram_ok)
+            _log_send(sends_buf, uid, label, fuels, ntfy_ok, telegram_ok)
         elif not avail and prev:
             print(f"  (закончился) {fw.station_label(s)}")
         state[osm] = {
@@ -155,9 +161,19 @@ def poll_user(uid, u, state, tg_token=None, sends_file=None):
 
 
 def poll_all(users_path, state_path, repo=None, token=None, tg_token=None,
-             sends_file=None):
+             sends_path=None):
     users = load_users(users_path, repo=repo, token=token)
-    state = load_state(state_path)
+    remote = bool(repo and token)
+    if remote:
+        state, state_sha = ds.load_json(repo, state_path, token, default={})
+        sends_text, sends_sha = (ds.load_text(repo, sends_path, token, default="")
+                                 if sends_path else ("", None))
+    else:
+        state = load_state(state_path)
+        state_sha = None
+        sends_text, sends_sha = _read_local(sends_path), None
+    sends_buf = [] if sends_path else None
+
     actives = active_users(users)
     if not actives:
         print("Нет активных пользователей (не заданы координаты/тема).")
@@ -165,12 +181,29 @@ def poll_all(users_path, state_path, repo=None, token=None, tg_token=None,
         ustate = state.setdefault(str(uid), {})
         try:
             updated, n = poll_user(uid, u, ustate, tg_token=tg_token,
-                                   sends_file=sends_file)
+                                   sends_buf=sends_buf)
             print(f"[{time.strftime('%H:%M:%S')}] user {uid}: "
                   f"updated={updated}, станций={n}")
         except Exception as e:
             print(f"[{time.strftime('%H:%M:%S')}] user {uid}: ОШИБКА {e}")
-    save_state(state_path, state)
+
+    if remote:
+        try:
+            ds.save_json(repo, state_path, token, state, state_sha,
+                         message="состояние монитора")
+        except Exception as e:
+            print(f"не удалось сохранить состояние: {e}")
+        if sends_path and sends_buf:
+            try:
+                ds.save_text(repo, sends_path, token, sends_text + "".join(sends_buf),
+                             sends_sha, message="журнал отправок")
+            except Exception as e:
+                print(f"не удалось сохранить журнал отправок: {e}")
+    else:
+        save_state(state_path, state)
+        if sends_path and sends_buf:
+            with open(sends_path, "a", encoding="utf-8") as f:
+                f.write("".join(sends_buf))
     return len(actives)
 
 
@@ -183,20 +216,20 @@ def _storage_note(args):
 
 
 def cmd_once(args):
-    print(f"[{time.strftime('%H:%M:%S')}] хранилище users.json: {_storage_note(args)}")
+    print(f"[{time.strftime('%H:%M:%S')}] хранилище данных: {_storage_note(args)}")
     n = poll_all(args.users, args.state, repo=args.data_repo, token=args.data_token,
-                 tg_token=args.telegram_token, sends_file=args.sends)
+                 tg_token=args.telegram_token, sends_path=args.sends)
     print(f"активных пользователей: {n}")
     return 0
 
 
 def cmd_loop(args):
-    print(f"хранилище users.json: {_storage_note(args)}")
+    print(f"хранилище данных: {_storage_note(args)}")
     print("Мультимонитор запущен (loop). Ctrl+C для выхода.")
     while True:
         try:
             poll_all(args.users, args.state, repo=args.data_repo, token=args.data_token,
-                     tg_token=args.telegram_token, sends_file=args.sends)
+                     tg_token=args.telegram_token, sends_path=args.sends)
         except Exception as e:
             print(f"ошибка цикла: {e}")
         try:

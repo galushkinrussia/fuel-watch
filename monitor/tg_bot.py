@@ -513,8 +513,29 @@ def process_update(update, token, admins, data, users_path):
         print(f"  -> send FAIL: {e}")
 
 
+def _load_offset(state_file, repo=None, token=None):
+    """Читает offset: из приватного репо (repo+token) или локально. → (offset, sha)."""
+    if repo and token:
+        data, sha = ds.load_json(repo, state_file, token, default={})
+        return data.get("offset"), sha
+    return load_state(state_file).get("offset"), None
+
+
+def _save_offset(state_file, offset, sha=None, repo=None, token=None):
+    payload = {"offset": offset, "updated": time.strftime("%Y-%m-%d %H:%M:%S")}
+    if repo and token:
+        try:
+            return ds.save_json(repo, state_file, token, payload, sha,
+                                message="состояние бота")
+        except Exception as e:
+            print(f"  -> save offset FAIL: {e}")
+            return sha
+    save_state(state_file, payload)
+    return None
+
+
 def process(token, admins, data, users_sha, users_path, state_file, offset,
-            repo=None, data_token=None):
+            state_sha=None, repo=None, data_token=None):
     updates = get_updates(token, offset=offset, timeout=0)
     for u in updates:
         process_update(u, token, admins, data, users_path)
@@ -524,10 +545,8 @@ def process(token, admins, data, users_sha, users_path, state_file, offset,
                                    repo=repo, token=data_token)
         except Exception as e:
             print(f"  -> save users FAIL: {e}")
-    new_offset = max((u["update_id"] for u in updates), default=offset) + 1 \
-        if updates else offset
-    save_state(state_file, {"offset": new_offset,
-                            "updated": time.strftime("%Y-%m-%d %H:%M:%S")})
+        new_offset = max(u["update_id"] for u in updates) + 1
+        _save_offset(state_file, new_offset, state_sha, repo, data_token)
     return len(updates), users_sha
 
 
@@ -540,21 +559,20 @@ def _storage_note(args):
 
 
 def cmd_once(args):
-    print(f"[{time.strftime('%H:%M:%S')}] хранилище users.json: {_storage_note(args)}")
-    offset = load_state(args.state).get("offset")
+    print(f"[{time.strftime('%H:%M:%S')}] хранилище данных: {_storage_note(args)}")
+    offset, state_sha = _load_offset(args.state, args.data_repo, args.data_token)
     data, users_sha = load_users(args.users, repo=args.data_repo, token=args.data_token)
     admins = parse_admins(args.admin)
     n, _ = process(args.token, admins, data, users_sha, args.users, args.state,
-                   offset, repo=args.data_repo, data_token=args.data_token)
+                   offset, state_sha, repo=args.data_repo, data_token=args.data_token)
     print(f"обработано обновлений: {n}")
     return 0
 
 
 def cmd_loop(args):
-    state = load_state(args.state)
-    offset = state.get("offset")
+    offset, state_sha = _load_offset(args.state, args.data_repo, args.data_token)
     admins = parse_admins(args.admin)
-    print(f"хранилище users.json: {_storage_note(args)}")
+    print(f"хранилище данных: {_storage_note(args)}")
     print("Бот запущен (loop). Ctrl+C для выхода.")
     while True:
         data, users_sha = load_users(args.users, repo=args.data_repo, token=args.data_token)
@@ -566,8 +584,8 @@ def cmd_loop(args):
                 users_sha = save_users(args.users, data, users_sha,
                                        repo=args.data_repo, token=args.data_token)
                 offset = max(u["update_id"] for u in updates) + 1
-                save_state(args.state, {"offset": offset,
-                                        "updated": time.strftime("%Y-%m-%d %H:%M:%S")})
+                state_sha = _save_offset(args.state, offset, state_sha,
+                                         args.data_repo, args.data_token)
         except KeyboardInterrupt:
             break
         except Exception as e:

@@ -74,3 +74,27 @@ def save_json(repo, path, token, data, sha=None, message="update"):
     url = f"{GH_API}/repos/{repo}/contents/{path}"
     resp = _gh("PUT", url, token, body)
     return resp.get("content", {}).get("sha")
+
+
+def load_text(repo, path, token, default=""):
+    """Читает файл как текст (для JSONL-логов). Возвращает (text, sha)."""
+    url = f"{GH_API}/repos/{repo}/contents/{path}"
+    try:
+        resp = _gh("GET", url, token)
+    except RuntimeError as e:
+        if "404" in str(e):
+            return default, None
+        raise
+    raw = resp.get("content", "")
+    return base64.b64decode(raw.replace("\n", "")).decode("utf-8"), resp.get("sha")
+
+
+def save_text(repo, path, token, text, sha=None, message="update"):
+    """Создаёт или обновляет текстовый файл. Возвращает новый sha."""
+    content = base64.b64encode(text.encode("utf-8")).decode("ascii")
+    body = {"message": message, "content": content}
+    if sha:
+        body["sha"] = sha
+    url = f"{GH_API}/repos/{repo}/contents/{path}"
+    resp = _gh("PUT", url, token, body)
+    return resp.get("content", {}).get("sha")

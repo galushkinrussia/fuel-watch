@@ -1,13 +1,11 @@
 name: chat-monitor
 
 # Релей городского чата водителей gdebenz.ru в ntfy.
+# Состояние (chat_state.json) хранится в приватном репозитории (DATA_REPO).
 # Запускается только вручную (workflow_dispatch) — из внешнего cron (cron-job.org).
 # Встроенное расписание GitHub отключено (троттлилось).
 on:
   workflow_dispatch:
-
-permissions:
-  contents: write
 
 jobs:
   monitor:
@@ -24,18 +22,7 @@ jobs:
           CHATWATCH_CITY: ${{ vars.CHAT_CITY }}
           CHATWATCH_TOPIC: ${{ vars.CHAT_TOPIC }}
           CHATWATCH_STATE: chat_state.json
+          DATA_REPO: ${{ vars.DATA_REPO }}
+          DATA_PAT: ${{ secrets.DATA_PAT }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
         run: python3 monitor/chat_watch.py once
-
-      - name: Сохранить состояние
-        run: |
-          git config user.name "fuel-bot"
-          git config user.email "fuel-bot@users.noreply.github.com"
-          if [ -n "$(git status --porcelain chat_state.json)" ]; then
-            git add chat_state.json
-            git commit -m "chore: обновить состояние чата"
-            for i in 1 2 3 4 5; do
-              git pull --rebase origin main && git push && break
-              sleep 3
-            done
-          fi

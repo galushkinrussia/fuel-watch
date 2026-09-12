@@ -2,13 +2,12 @@ name: fuel-monitor
 
 # Многопользовательский монитор топлива. Читает users.json и для каждого
 # активного пользователя опрашивает его координаты, шлёт push в его ntfy-тему.
+# Все данные (users.json, users_state.json, sends.jsonl) хранятся в отдельном
+# приватном репозитории (DATA_REPO) через GitHub API — публичный репо только код.
 # Запускается из внешнего cron (cron-job.org) через workflow_dispatch —
 # встроенное расписание GitHub отключено (троттлится).
 on:
   workflow_dispatch:
-
-permissions:
-  contents: write
 
 jobs:
   monitor:
@@ -29,16 +28,3 @@ jobs:
           DATA_PAT: ${{ secrets.DATA_PAT }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: python3 monitor/multi_watch.py once
-
-      - name: Сохранить состояние
-        run: |
-          git config user.name "fuel-bot"
-          git config user.email "fuel-bot@users.noreply.github.com"
-          if [ -n "$(git status --porcelain users_state.json sends.jsonl)" ]; then
-            git add users_state.json sends.jsonl
-            git commit -m "chore: обновить состояние монитора"
-            for i in 1 2 3 4 5; do
-              git pull --rebase origin main && git push && break
-              sleep 3
-            done
-          fi
