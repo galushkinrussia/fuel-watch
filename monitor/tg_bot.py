@@ -327,7 +327,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
             return "Недостаточно прав."
         code = new_invite(data)
         return (f"Код приглашения:\n<code>{code}</code>\n\n"
-                f"Передайте его человеку — он отправит боту <code>/invite {code}</code>",
+                f"Передайте его человеку — он отправит боту:\n<code>/invite {code}</code>",
                 "HTML")
 
     if t.startswith("/listusers"):
