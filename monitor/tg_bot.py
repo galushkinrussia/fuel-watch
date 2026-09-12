@@ -61,11 +61,11 @@ HELP_TEXT = (
     "  /loc — отправить геолокацию\n"
     "  /set radius 8 — радиус поиска, км\n"
     "  /set fuel 92 95 — марки топлива\n"
-    "  /set topic <тема> — ваша ntfy-тема\n"
-    "  /status — показать\n"
+    "  /status — показать (в т.ч. вашу тему ntfy)\n"
     "  /help — помощь\n\n"
     "Координаты можно ввести и вручную: /set lat …, /set lon …\n"
-    "Уведомления приходят в этот чат и в приложение ntfy (подпишитесь на свою тему)."
+    "Тема ntfy создаётся автоматически — смотрите её в /status.\n"
+    "Уведомления приходят в этот чат и в приложение ntfy."
 )
 
 ADMIN_HELP = (
@@ -188,6 +188,10 @@ def is_admin(user_id, admins):
     return admins and str(user_id) in admins
 
 
+def generate_topic():
+    return "fuelwatch-" + secrets.token_hex(6)
+
+
 def register_user(data, user_id, username):
     uid = str(user_id)
     if uid not in data["users"]:
@@ -197,9 +201,11 @@ def register_user(data, user_id, username):
             "lon": None,
             "radius": 8,
             "fuel": ["92", "95"],
-            "topic": None,
+            "topic": generate_topic(),
             "registered_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
+    elif not data["users"][uid].get("topic"):
+        data["users"][uid]["topic"] = generate_topic()
     return data["users"][uid]
 
 
@@ -219,9 +225,11 @@ def redeem_invite(data, user_id, username, code):
         return False, "Неверный код приглашения."
     if inv.get("used_by") is not None:
         return False, "Этот код уже использован."
-    register_user(data, user_id, username)
+    user = register_user(data, user_id, username)
     inv["used_by"] = str(user_id)
-    return True, "Вы зарегистрированы! Задайте координаты и тему:\n" + HELP_TEXT
+    return True, (f"Вы зарегистрированы! Ваша тема ntfy: {user['topic']}\n"
+                  f"Подпишитесь на неё в приложении ntfy.\n"
+                  f"Затем отправьте геолокацию: /loc\n" + HELP_TEXT)
 
 
 def parse_set(text):
@@ -288,9 +296,11 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
     if t.startswith("/start"):
         parts = t.split()
         if admin and not registered:
-            register_user(data, user_id, username)
-            return "Вы админ и зарегистрированы автоматически.\n" + HELP_TEXT
+            user = register_user(data, user_id, username)
+            return (f"Вы админ и зарегистрированы автоматически.\n"
+                    f"Ваша тема ntfy: {user['topic']}\n" + HELP_TEXT)
         if registered:
+            user = register_user(data, user_id, username)  # дозаполнит тему, если её нет
             return "С возвращением!\n" + HELP_TEXT
         if len(parts) >= 2:  # /start <code>
             ok, msg = redeem_invite(data, user_id, username, parts[1])
