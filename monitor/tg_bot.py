@@ -99,10 +99,12 @@ def get_updates(token, offset=None, timeout=0):
     return _tg("getUpdates", token, params, timeout=timeout + 20).get("result", [])
 
 
-def send_message(token, chat_id, text, reply_markup=None):
+def send_message(token, chat_id, text, reply_markup=None, parse_mode=None):
     params = {"chat_id": chat_id, "text": text}
     if reply_markup is not None:
         params["reply_markup"] = json.dumps(reply_markup)
+    if parse_mode:
+        params["parse_mode"] = parse_mode
     _tg("sendMessage", token, params)
 
 
@@ -324,7 +326,9 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
         if not admin:
             return "Недостаточно прав."
         code = new_invite(data)
-        return f"Код приглашения: {code}\nПередайте его человеку, он отправит боту /invite {code}"
+        return (f"Код приглашения:\n<code>{code}</code>\n\n"
+                f"Передайте его человеку — он отправит боту <code>/invite {code}</code>",
+                "HTML")
 
     if t.startswith("/listusers"):
         if not admin:
@@ -366,6 +370,7 @@ def process_update(update, token, admins, data, users_path):
     if not chat_id:
         return
     reply_markup = None
+    parse_mode = None
     if location:
         print(f"[{time.strftime('%H:%M:%S')}] от {user_id}: геолокация")
         reply, reply_markup = handle_location(data, user_id, location)
@@ -376,8 +381,11 @@ def process_update(update, token, admins, data, users_path):
         print(f"[{time.strftime('%H:%M:%S')}] от {user_id}: {text!r}")
         reply = handle_command(text, chat_id, user_id, username, admins, token,
                                data, users_path)
+        if isinstance(reply, tuple):
+            reply, parse_mode = reply
     try:
-        send_message(token, chat_id, reply, reply_markup=reply_markup)
+        send_message(token, chat_id, reply, reply_markup=reply_markup,
+                     parse_mode=parse_mode)
     except Exception as e:
         print(f"  -> send FAIL: {e}")
 
