@@ -95,7 +95,25 @@ def active_users(users):
     return out
 
 
-def poll_user(uid, u, state, tg_token=None):
+def _log_send(sends_file, uid, label, fuels, ntfy_ok, telegram_ok):
+    """Дописывает одну строку в журнал отправок (для подсчёта)."""
+    if not sends_file:
+        return
+    try:
+        with open(sends_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "user": uid,
+                "station": label,
+                "fuel": fuels,
+                "ntfy": ntfy_ok,
+                "telegram": telegram_ok,
+            }, ensure_ascii=False) + "\n")
+    except OSError as e:
+        print(f"  -> запись журнала отправок FAIL: {e}")
+
+
+def poll_user(uid, u, state, tg_token=None, sends_file=None):
     wanted = u.get("fuel") or []
     stations, updated = fw.fetch_stations(u["lat"], u["lon"], u.get("radius", 8))
     for s in stations:
@@ -104,22 +122,28 @@ def poll_user(uid, u, state, tg_token=None):
         prev = state.get(osm, {}).get("avail")
         if avail and prev is False:
             fuels = ", ".join(sorted(fw.station_fuels(s))) or "?"
-            text = f"{fw.station_label(s)}\n{fuels}\n{s.get('detail') or ''}".strip()
+            label = fw.station_label(s)
+            text = f"{label}\n{fuels}\n{s.get('detail') or ''}".strip()
             map_url = fw.station_map_url(s)
             if map_url:
                 text += f"\n{map_url}"
+            ntfy_ok = False
             try:
                 fw.send_ntfy(u["topic"], "⛽ Бензин появился", text,
                              click=map_url or None)
-                print(f"  -> notify ok: {fw.station_label(s)}")
+                ntfy_ok = True
+                print(f"  -> notify ok: {label}")
             except Exception as e:
                 print(f"  -> ntfy FAIL: {e}")
+            telegram_ok = False
             if tg_token:
                 try:
                     send_telegram(tg_token, uid, "⛽ Бензин появился\n\n" + text)
-                    print(f"  -> telegram ok: {fw.station_label(s)}")
+                    telegram_ok = True
+                    print(f"  -> telegram ok: {label}")
                 except Exception as e:
                     print(f"  -> telegram FAIL: {e}")
+            _log_send(sends_file, uid, label, fuels, ntfy_ok, telegram_ok)
         elif not avail and prev:
             print(f"  (закончился) {fw.station_label(s)}")
         state[osm] = {
@@ -130,7 +154,8 @@ def poll_user(uid, u, state, tg_token=None):
     return updated, len(stations)
 
 
-def poll_all(users_path, state_path, repo=None, token=None, tg_token=None):
+def poll_all(users_path, state_path, repo=None, token=None, tg_token=None,
+             sends_file=None):
     users = load_users(users_path, repo=repo, token=token)
     state = load_state(state_path)
     actives = active_users(users)
@@ -139,7 +164,8 @@ def poll_all(users_path, state_path, repo=None, token=None, tg_token=None):
     for uid, u in actives.items():
         ustate = state.setdefault(str(uid), {})
         try:
-            updated, n = poll_user(uid, u, ustate, tg_token=tg_token)
+            updated, n = poll_user(uid, u, ustate, tg_token=tg_token,
+                                   sends_file=sends_file)
             print(f"[{time.strftime('%H:%M:%S')}] user {uid}: "
                   f"updated={updated}, станций={n}")
         except Exception as e:
@@ -159,7 +185,7 @@ def _storage_note(args):
 def cmd_once(args):
     print(f"[{time.strftime('%H:%M:%S')}] хранилище users.json: {_storage_note(args)}")
     n = poll_all(args.users, args.state, repo=args.data_repo, token=args.data_token,
-                 tg_token=args.telegram_token)
+                 tg_token=args.telegram_token, sends_file=args.sends)
     print(f"активных пользователей: {n}")
     return 0
 
@@ -170,7 +196,7 @@ def cmd_loop(args):
     while True:
         try:
             poll_all(args.users, args.state, repo=args.data_repo, token=args.data_token,
-                     tg_token=args.telegram_token)
+                     tg_token=args.telegram_token, sends_file=args.sends)
         except Exception as e:
             print(f"ошибка цикла: {e}")
         try:
@@ -190,6 +216,7 @@ def main():
         sp.add_argument("--data-repo", help="owner/repo приватного репо с users.json")
         sp.add_argument("--data-token", help="PAT с правами contents")
         sp.add_argument("--telegram-token", help="токен бота для дубля в Telegram (или TELEGRAM_BOT_TOKEN)")
+        sp.add_argument("--sends", default=None, help="файл журнала отправок (JSONL)")
 
     op = sub.add_parser("once", help="один проход (для cron/облака)")
     add_common(op)
@@ -216,6 +243,7 @@ def _env_override(args):
     apply("data_repo", "DATA_REPO")
     apply("data_token", "DATA_PAT")
     apply("telegram_token", "TELEGRAM_BOT_TOKEN")
+    apply("sends", "MULTI_SENDS")
 
 
 if __name__ == "__main__":

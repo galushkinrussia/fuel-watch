@@ -24,6 +24,7 @@ jobs:
         env:
           MULTI_USERS: users.json
           MULTI_STATE: users_state.json
+          MULTI_SENDS: sends.jsonl
           DATA_REPO: ${{ vars.DATA_REPO }}
           DATA_PAT: ${{ secrets.DATA_PAT }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -33,8 +34,8 @@ jobs:
         run: |
           git config user.name "fuel-bot"
           git config user.email "fuel-bot@users.noreply.github.com"
-          if [ -n "$(git status --porcelain users_state.json)" ]; then
-            git add users_state.json
+          if [ -n "$(git status --porcelain users_state.json sends.jsonl)" ]; then
+            git add users_state.json sends.jsonl
             git commit -m "chore: обновить состояние монитора"
             for i in 1 2 3 4 5; do
               git pull --rebase origin main && git push && break
