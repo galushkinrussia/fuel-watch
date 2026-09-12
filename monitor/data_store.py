@@ -32,9 +32,17 @@ def _gh(method, url, token, body=None, timeout=30):
         data = json.dumps(body).encode("utf-8")
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        raw = r.read().decode("utf-8")
-        return json.loads(raw) if raw else {}
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read().decode("utf-8")
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as e:
+        detail = ""
+        try:
+            detail = e.read().decode("utf-8")[:400]
+        except Exception:
+            pass
+        raise RuntimeError(f"GitHub API {e.code} {e.reason}: {detail}") from None
 
 
 def load_json(repo, path, token, default=None):
@@ -42,8 +50,9 @@ def load_json(repo, path, token, default=None):
     url = f"{GH_API}/repos/{repo}/contents/{path}"
     try:
         resp = _gh("GET", url, token)
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
+    except RuntimeError as e:
+        msg = str(e)
+        if "404" in msg:
             return (default if default is not None else {}), None
         raise
     raw = resp.get("content", "")

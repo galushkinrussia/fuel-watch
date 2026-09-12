@@ -126,13 +126,23 @@ def poll_all(users_path, state_path, repo=None, token=None):
     return len(actives)
 
 
+def _storage_note(args):
+    if args.data_repo and args.data_token:
+        return f"приватный репо {args.data_repo}"
+    if args.data_repo or args.data_token:
+        return "ЛОКАЛЬНЫЙ файл (задан только один из DATA_REPO/DATA_PAT — проверь оба!)"
+    return "ЛОКАЛЬНЫЙ файл (DATA_REPO/DATA_PAT не заданы)"
+
+
 def cmd_once(args):
+    print(f"[{time.strftime('%H:%M:%S')}] хранилище users.json: {_storage_note(args)}")
     n = poll_all(args.users, args.state, repo=args.data_repo, token=args.data_token)
     print(f"активных пользователей: {n}")
     return 0
 
 
 def cmd_loop(args):
+    print(f"хранилище users.json: {_storage_note(args)}")
     print("Мультимонитор запущен (loop). Ctrl+C для выхода.")
     while True:
         try:

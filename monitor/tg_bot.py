@@ -343,7 +343,16 @@ def process(token, admins, data, users_sha, users_path, state_file, offset,
     return len(updates), users_sha
 
 
+def _storage_note(args):
+    if args.data_repo and args.data_token:
+        return f"приватный репо {args.data_repo}"
+    if args.data_repo or args.data_token:
+        return "ЛОКАЛЬНЫЙ файл (задан только один из DATA_REPO/DATA_PAT — проверь оба!)"
+    return "ЛОКАЛЬНЫЙ файл (DATA_REPO/DATA_PAT не заданы)"
+
+
 def cmd_once(args):
+    print(f"[{time.strftime('%H:%M:%S')}] хранилище users.json: {_storage_note(args)}")
     offset = load_state(args.state).get("offset")
     data, users_sha = load_users(args.users, repo=args.data_repo, token=args.data_token)
     admins = parse_admins(args.admin)
@@ -357,6 +366,7 @@ def cmd_loop(args):
     state = load_state(args.state)
     offset = state.get("offset")
     admins = parse_admins(args.admin)
+    print(f"хранилище users.json: {_storage_note(args)}")
     print("Бот запущен (loop). Ctrl+C для выхода.")
     while True:
         data, users_sha = load_users(args.users, repo=args.data_repo, token=args.data_token)
