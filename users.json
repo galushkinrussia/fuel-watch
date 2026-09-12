@@ -3,14 +3,14 @@
   "users": {
     "438032456": {
       "username": "galushkinrussia",
-      "lat": null,
-      "lon": null,
+      "lat": 48.680,
+      "lon": 44.470,
       "radius": 8,
       "fuel": [
         "92",
         "95"
       ],
-      "topic": null,
+      "topic": "fuelwatch-avllon8s0inkr0",
       "registered_at": "2026-09-12 09:57:19"
     }
   }
