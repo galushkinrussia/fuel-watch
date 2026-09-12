@@ -11,12 +11,13 @@
 Зависимости: только стандартная библиотека Python 3.
 
 Использование:
-  python3 fuel_watch.py list      --lat 48.680 --lon 44.470 --radius 8 [--fuel 92 95 ДТ]
-  python3 fuel_watch.py watch     --lat 48.680 --lon 44.470 --radius 8 --topic mytopic [--fuel 92 95]
+  python3 fuel_watch.py list      --lat <LAT> --lon <LON> --radius 8 [--fuel 92 95 ДТ]
+  python3 fuel_watch.py watch     --lat <LAT> --lon <LON> --radius 8 --topic mytopic [--fuel 92 95]
   python3 fuel_watch.py watch     --config config.json
   python3 fuel_watch.py once      --topic mytopic --state state.json   # для cron/облака
 
-Параметры можно задавать переменными окружения: FUELWATCH_LAT, FUELWATCH_LON,
+Координаты обязательны (жёстких дефолтов нет) — задаются флагами --lat/--lon,
+через config.json или переменные окружения: FUELWATCH_LAT, FUELWATCH_LON,
 FUELWATCH_RADIUS, FUELWATCH_FUEL, FUELWATCH_TOPIC, FUELWATCH_STATE, FUELWATCH_INTERVAL.
 """
 
@@ -251,8 +252,8 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def add_common(sp):
-        sp.add_argument("--lat", type=float, default=48.680)
-        sp.add_argument("--lon", type=float, default=44.470)
+        sp.add_argument("--lat", type=float, default=None)
+        sp.add_argument("--lon", type=float, default=None)
         sp.add_argument("--radius", type=float, default=8.0)
         sp.add_argument("--fuel", nargs="*", default=[],
                         help="марки: 92 95 98 100 ДТ")
@@ -286,6 +287,11 @@ def main():
             if not getattr(args, k, None):
                 setattr(args, k, v)
     _env_override(args)
+    if getattr(args, "lat", None) is None or getattr(args, "lon", None) is None:
+        print("Ошибка: укажите координаты — флагами --lat/--lon, "
+              "в config.json или через FUELWATCH_LAT/FUELWATCH_LON.",
+              file=sys.stderr)
+        sys.exit(2)
     sys.exit(args.func(args) or 0)
 
 

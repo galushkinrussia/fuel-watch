@@ -69,8 +69,8 @@ https://api.github.com/repos/<ЛОГИН>/<РЕПО>/actions/workflows/<workflow
 Variables:
 | Переменная | Пример | Назначение |
 |---|---|---|
-| `LAT` | `48.680` | центр поиска |
-| `LON` | `44.470` | центр поиска |
+| `LAT` | `<широта>` | центр поиска |
+| `LON` | `<долгота>` | центр поиска |
 | `RADIUS` | `8` | радиус, км |
 | `FUEL` | `92 95` | марки для монитора |
 | `TOPIC` | `fuelwatch-...` | ntfy-тема топлива |
@@ -91,10 +91,10 @@ Secrets:
 
 ```bash
 # топливо — посмотреть сейчас
-python3 monitor/fuel_watch.py list --lat 48.680 --lon 44.470 --radius 8 --fuel 92 95
+python3 monitor/fuel_watch.py list --lat <LAT> --lon <LON> --radius 8 --fuel 92 95
 
 # топливо — локальный цикл (ПК/сервер)
-python3 monitor/fuel_watch.py watch --lat 48.680 --lon 44.470 --radius 8 --fuel 92 95 --topic <тема> --interval 180
+python3 monitor/fuel_watch.py watch --lat <LAT> --lon <LON> --radius 8 --fuel 92 95 --topic <тема> --interval 180
 
 # топливо — один опрос (для cron/облака)
 python3 monitor/fuel_watch.py once --topic <тема> --state state.json --history history.jsonl
@@ -138,7 +138,7 @@ python3 monitor/analyze.py --history history.jsonl --station Лукойл
   Telegram не используется, но токен стоит отозвать в `@BotFather` (/revoke).
 - Функция Telegram всё ещё есть в `fuel_watch.py` (`--tg-token`/`--tg-chat`),
   но не задействована.
-- Координаты по умолчанию (48.680, 44.470) — приблизительный центр района наблюдения.
+- Координаты в коде не зашиты — задаются переменными/флагами (жёстких дефолтов нет).
 
 ---
 

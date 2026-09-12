@@ -5,8 +5,9 @@ import android.content.SharedPreferences
 
 object Prefs {
     private const val NAME = "fuelwatch"
-    const val DEFAULT_LAT = 48.680
-    const val DEFAULT_LON = 44.470
+    // Нейтральный дефолт (центр города) — свои координаты вводите в приложении.
+    const val DEFAULT_LAT = 48.7080
+    const val DEFAULT_LON = 44.5148
     const val DEFAULT_RADIUS = 8.0
 
     private fun sp(ctx: Context): SharedPreferences =
