@@ -60,6 +60,7 @@ HELP_TEXT = (
     "  📊 Анализ — когда обычно бывает топливо\n"
     "  ⚙️ Настройки — радиус, топливо, уведомления\n"
     "  ❓ Помощь — эта справка\n\n"
+    "Проверить доставку уведомлений — /test\n"
     "Уведомления приходят в этот чат.\n"
     "Данные: отметки водителей на gdebenz.ru."
 )
@@ -173,6 +174,7 @@ def set_commands(token):
         {"command": "stats", "description": "Анализ появления"},
         {"command": "notify", "description": "Вкл/выкл уведомления"},
         {"command": "set", "description": "Задать настройку"},
+        {"command": "test", "description": "Проверить доставку уведомлений"},
         {"command": "help", "description": "Помощь"},
     ]
     _tg("setMyCommands", token, {"commands": json.dumps(commands)})
@@ -377,11 +379,19 @@ def user_stats(data_repo, data_token, user_id):
     except Exception as e:
         return f"Не удалось получить статистику: {e}"
     if not text.strip():
-        return "Пока нет данных — наберём историю за пару дней."
+        return ("📊 Пока копим данные для анализа.\n\n"
+                "Монитор собирает историю автоматически (каждые ~15 минут). "
+                "Чтобы появились закономерности — в какое время обычно "
+                "появляется топливо — нужно 2–3 дня. Это нормально, "
+                "ничего делать не нужно.\n\n"
+                "Загляните сюда позже.")
     import analyze as az
     mine = [r for r in az.parse_records(text) if str(r.get("user")) == str(user_id)]
     if not mine:
-        return "Пока нет данных по вашим АЗС — наберём историю за пару дней."
+        return ("📊 По вашим АЗС данных пока мало.\n\n"
+                "История копится автоматически, обычно нужно 2–3 дня. "
+                "Загляните позже — тогда покажу, когда обычно появляется топливо "
+                "рядом с вами.")
     return az.build_digest(mine, az.analyze(mine), tz=3)
 
 
@@ -440,16 +450,12 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
 
     # --- служебные команды (доступны всегда) ---
     if t.startswith("/start"):
-        parts = t.split()
         if admin and not registered:
             user = register_user(data, user_id, username)
             return ("Вы админ. Задайте место кнопкой «📍 Геолокация».\n\n" + HELP_TEXT)
         if registered:
             user = register_user(data, user_id, username)  # дозаполнит тему, если её нет
             return "С возвращением!\n\n" + HELP_TEXT
-        if len(parts) >= 2:  # /start <code>
-            ok, msg = redeem_invite(data, user_id, username, parts[1])
-            return msg
         return "Привет!\n" + REGISTER_PROMPT
 
     if t.startswith("/invite") or t.startswith("invite"):
