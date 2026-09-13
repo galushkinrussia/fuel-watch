@@ -138,9 +138,9 @@ MAIN_KEYBOARD = {
     "resize_keyboard": True,
 }
 
-# одноразовая клавиатура «поделиться геолокацией»
+# одноразовая клавиатура «отправить текущее местоположение»
 REQUEST_LOCATION_KEYBOARD = {
-    "keyboard": [[{"text": "📍 Отправить мою геолокацию", "request_location": True}]],
+    "keyboard": [[{"text": "📤 Отправить местоположение", "request_location": True}]],
     "resize_keyboard": True,
     "one_time_keyboard": True,
 }
@@ -602,9 +602,9 @@ def process_update(update, token, admins, data, users_path,
             return
         if cb_data.startswith("loc:"):
             if cb_data == "loc:current":
-                answer_callback(token, cid, "Отправьте вашу геолокацию")
+                answer_callback(token, cid, "Отправьте местоположение")
                 send_message(token, chat_id, "Нажмите кнопку ниже, чтобы "
-                             "поделиться геолокацией.",
+                             "отправить местоположение.",
                              reply_markup=REQUEST_LOCATION_KEYBOARD)
             elif cb_data == "loc:map":
                 answer_callback(token, cid, "")
