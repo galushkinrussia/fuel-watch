@@ -41,6 +41,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import data_store as ds
+import fuel_watch as fw
 
 TG_API = "https://api.telegram.org"
 BOT_USERNAME = "give_me_fuel_give_me_fire_bot"
@@ -456,12 +457,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
         topic = user.get("topic")
         if topic:
             try:
-                req = urllib.request.Request(
-                    f"https://ntfy.sh/{urllib.parse.quote(topic)}",
-                    data=msg.encode("utf-8"),
-                    headers={"Title": "Тест"},
-                    method="POST")
-                urllib.request.urlopen(req, timeout=15).read()
+                fw.send_ntfy(topic, "Тест доставки", msg)
                 parts.append("ntfy ✅")
             except Exception as e:
                 parts.append(f"ntfy ❌ ({e})")
