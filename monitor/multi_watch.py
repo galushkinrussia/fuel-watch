@@ -123,7 +123,7 @@ def _read_local(path):
 def poll_user(uid, u, state, tg_token=None, sends_buf=None, history_acc=None):
     wanted = u.get("fuel") or []
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    stations, updated = fw.fetch_stations(u["lat"], u["lon"], u.get("radius", 8))
+    stations, updated = fw.fetch_stations(u["lat"], u["lon"], u.get("radius", 10))
     for s in stations:
         osm = str(s.get("osm_id"))
         if history_acc is not None:

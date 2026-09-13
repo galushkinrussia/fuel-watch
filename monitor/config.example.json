@@ -1,7 +1,7 @@
 {
   "lat": null,
   "lon": null,
-  "radius": 8,
+  "radius": 10,
   "fuel": ["92", "95"],
   "topic": "my-fuel-topic",
   "interval": 180,

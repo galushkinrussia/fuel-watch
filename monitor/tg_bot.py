@@ -256,7 +256,7 @@ def register_user(data, user_id, username):
             "username": username,
             "lat": None,
             "lon": None,
-            "radius": 8,
+            "radius": 10,
             "fuel": ["92", "95"],
             "topic": generate_topic(),
             "enabled": True,
@@ -325,7 +325,7 @@ def format_user(user):
     """Экран настроек с инлайн-кнопками. Возвращает (text, inline_keyboard)."""
     lat, lon = user.get("lat"), user.get("lon")
     loc = f"{lat:.4f}, {lon:.4f}" if lat is not None and lon is not None else "не задана"
-    radius = user.get("radius", 8)
+    radius = user.get("radius", 10)
     fuel = user.get("fuel") or []
     enabled = user.get("enabled", True)
 
@@ -343,7 +343,7 @@ def format_user(user):
         return "✓ " if cond else ""
 
     radius_row = [{"text": f"{mark(float(radius) == r)}{r} км", "callback_data": f"r:{r}"}
-                  for r in (5, 8, 15)]
+                  for r in (5, 10, 15)]
     fuel_row = [{"text": f"{mark(f in fuel)}{f}", "callback_data": f"f:{f}"}
                 for f in ("92", "95", "ДТ")]
     toggle = {"text": ("🔕 выключить в боте" if enabled else "🔔 включить в боте"),
