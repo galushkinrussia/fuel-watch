@@ -408,7 +408,13 @@ def handle_location(data, user_id, location):
     user["lat"] = lat
     user["lon"] = lon
     data["users"][uid] = user
-    return f"OK: координаты заданы\nlat = {lat}\nlon = {lon}"
+    radius = user.get("radius", 10)
+    fuel = user.get("fuel") or []
+    fuel_str = ("марки " + ", ".join(fuel)) if fuel else "все марки"
+    return (f"Готово! Слежу за топливом в радиусе {radius:g} км "
+            f"({fuel_str}).\n"
+            f"Уведомление придёт, когда появится топливо.\n"
+            f"Настроить — «⚙️ Настройки»")
 
 
 def handle_command(text, chat_id, user_id, username, admins, token, data, users_path,
