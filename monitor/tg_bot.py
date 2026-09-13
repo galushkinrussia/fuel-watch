@@ -56,7 +56,7 @@ SETTINGS = {
 
 HELP_TEXT = (
     "Как пользоваться:\n"
-    "  📍 Геолокация — задать место\n"
+    "  🧭 Задать место — выбрать способ\n"
     "  📊 Анализ — когда обычно бывает топливо\n"
     "  ⚙️ Настройки — радиус, топливо, уведомления\n"
     "  ❓ Помощь — эта справка\n\n"
@@ -132,7 +132,7 @@ def answer_callback(token, callback_id, text=None):
 
 MAIN_KEYBOARD = {
     "keyboard": [
-        [{"text": "📍 Геолокация"}, {"text": "📊 Анализ"}],
+        [{"text": "🧭 Задать место"}, {"text": "📊 Анализ"}],
         [{"text": "⚙️ Настройки"}, {"text": "❓ Помощь"}],
     ],
     "resize_keyboard": True,
@@ -158,7 +158,7 @@ HISTORY_FILE = "history.jsonl"
 
 # текст кнопки -> команда (для обработки тапов по клавиатуре)
 BUTTONS = {
-    "📍 Геолокация": "loc",
+    "🧭 Задать место": "loc",
     "📊 Анализ": "stats",
     "🔔 Уведомления": "notify",
     "⚙️ Настройки": "settings",
@@ -282,7 +282,7 @@ def redeem_invite(data, user_id, username, code):
         return False, "Этот код уже использован."
     user = register_user(data, user_id, username)
     inv["used_by"] = str(user_id)
-    return True, ("Готово! Осталось задать место — нажмите «📍 Геолокация» ниже.\n\n"
+    return True, ("Готово! Осталось задать место — нажмите «🧭 Задать место» ниже.\n\n"
                   + HELP_TEXT)
 
 
@@ -332,7 +332,7 @@ def format_user(user):
             f"⛽ Топливо: {', '.join(fuel) if fuel else '—'}\n"
             f"🔔 Уведомления в боте: {'вкл' if enabled else 'выкл'}")
     if lat is None or lon is None:
-        text += "\n\n⚠️ Нажмите «📍 Геолокация», чтобы задать место."
+        text += "\n\n⚠️ Нажмите «🧭 Задать место», чтобы указать его."
     elif not enabled:
         text += "\n\nУведомления в боте выключены."
 
@@ -452,7 +452,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
     if t.startswith("/start"):
         if admin and not registered:
             user = register_user(data, user_id, username)
-            return ("Вы админ. Задайте место кнопкой «📍 Геолокация».\n\n" + HELP_TEXT)
+            return ("Вы админ. Задайте место кнопкой «🧭 Задать место».\n\n" + HELP_TEXT)
         if registered:
             user = register_user(data, user_id, username)  # дозаполнит тему, если её нет
             return "С возвращением!\n\n" + HELP_TEXT
