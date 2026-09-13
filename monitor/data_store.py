@@ -45,23 +45,53 @@ def _gh(method, url, token, body=None, timeout=30):
         raise RuntimeError(f"GitHub API {e.code} {e.reason}: {detail}") from None
 
 
-def load_json(repo, path, token, default=None):
-    """Возвращает (data, sha). Если файла нет — (default, None)."""
+def _fetch_contents(repo, path, token):
+    """GET contents. Возвращает resp (dict) или None, если файла нет."""
     url = f"{GH_API}/repos/{repo}/contents/{path}"
     try:
-        resp = _gh("GET", url, token)
+        return _gh("GET", url, token)
     except RuntimeError as e:
-        msg = str(e)
-        if "404" in msg:
-            return (default if default is not None else {}), None
+        if "404" in str(e):
+            return None
         raise
+
+
+def _content_text(repo, path, token, resp):
+    """Текст файла: из content (base64) или raw.
+
+    У файлов больше ~1 МБ GitHub Contents API отдаёт пустой content —
+    тогда читаем через raw-медиатип (иначе история «терялась» и перезаписывалась).
+    """
     raw = resp.get("content", "")
-    text = base64.b64decode(raw.replace("\n", "")).decode("utf-8")
+    if raw:
+        return base64.b64decode(raw.replace("\n", "")).decode("utf-8")
+    url = f"{GH_API}/repos/{repo}/contents/{path}"
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.raw",
+        "X-GitHub-Api-Version": "2022-11-28",
+    })
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return r.read().decode("utf-8")
+
+
+def load_text(repo, path, token, default=""):
+    """Читает файл как текст (JSONL/любой). Возвращает (text, sha)."""
+    resp = _fetch_contents(repo, path, token)
+    if resp is None:
+        return default, None
+    return _content_text(repo, path, token, resp), resp.get("sha")
+
+
+def load_json(repo, path, token, default=None):
+    """Возвращает (data, sha). Если файла нет — (default, None)."""
+    text, sha = load_text(repo, path, token, default=None)
+    if text is None:
+        return (default if default is not None else {}), sha
     try:
-        data = json.loads(text)
+        return json.loads(text), sha
     except json.JSONDecodeError:
-        data = default if default is not None else {}
-    return data, resp.get("sha")
+        return (default if default is not None else {}), sha
 
 
 def save_json(repo, path, token, data, sha=None, message="update"):
@@ -74,19 +104,6 @@ def save_json(repo, path, token, data, sha=None, message="update"):
     url = f"{GH_API}/repos/{repo}/contents/{path}"
     resp = _gh("PUT", url, token, body)
     return resp.get("content", {}).get("sha")
-
-
-def load_text(repo, path, token, default=""):
-    """Читает файл как текст (для JSONL-логов). Возвращает (text, sha)."""
-    url = f"{GH_API}/repos/{repo}/contents/{path}"
-    try:
-        resp = _gh("GET", url, token)
-    except RuntimeError as e:
-        if "404" in str(e):
-            return default, None
-        raise
-    raw = resp.get("content", "")
-    return base64.b64decode(raw.replace("\n", "")).decode("utf-8"), resp.get("sha")
 
 
 def save_text(repo, path, token, text, sha=None, message="update"):

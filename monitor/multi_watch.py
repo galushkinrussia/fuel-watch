@@ -130,20 +130,23 @@ def poll_user(uid, u, state, tg_token=None, sends_buf=None, history_acc=None,
     stations, updated = fw.fetch_stations(u["lat"], u["lon"], u.get("radius", 10))
     for s in stations:
         osm = str(s.get("osm_id"))
-        if history_acc is not None:
+        rec = state.get(osm, {})
+        prev = rec.get("avail")
+        status = s.get("status")
+        # в историю — только при смене статуса (иначе файл растёт слишком быстро)
+        if history_acc is not None and status != rec.get("status"):
             history_acc[f"{uid}:{osm}"] = {
                 "t": now,
                 "user": uid,
                 "osm_id": osm,
                 "brand": s.get("brand") or s.get("name"),
                 "addr": s.get("addr"),
-                "status": s.get("status"),
+                "status": status,
                 "fuels": s.get("fuels_now"),
                 "last_at": s.get("last_at"),
                 "dist": s.get("distance_km"),
             }
         avail = fw.station_available(s, wanted)
-        prev = state.get(osm, {}).get("avail")
         if avail and prev is False:
             label = fw.station_label(s)
             fuels = ", ".join(sorted(fw.station_fuels(s))) or "?"
@@ -180,6 +183,7 @@ def poll_user(uid, u, state, tg_token=None, sends_buf=None, history_acc=None,
             "avail": avail,
             "label": fw.station_label(s),
             "at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "status": status,
         }
     return updated, len(stations)
 
