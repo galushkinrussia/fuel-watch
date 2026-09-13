@@ -138,9 +138,9 @@ MAIN_KEYBOARD = {
     "resize_keyboard": True,
 }
 
-# одноразовая клавиатура «отправить текущую геолокацию»
+# одноразовая клавиатура «поделиться геолокацией»
 REQUEST_LOCATION_KEYBOARD = {
-    "keyboard": [[{"text": "📍 Отправить геолокацию", "request_location": True}]],
+    "keyboard": [[{"text": "📍 Отправить мою геолокацию", "request_location": True}]],
     "resize_keyboard": True,
     "one_time_keyboard": True,
 }
@@ -148,9 +148,9 @@ REQUEST_LOCATION_KEYBOARD = {
 # меню способов задать место
 LOC_MENU = {
     "inline_keyboard": [
-        [{"text": "📍 Текущая геолокация", "callback_data": "loc:current"}],
-        [{"text": "🗺 Выбрать на карте", "callback_data": "loc:map"}],
-        [{"text": "✍️ Написать адрес", "callback_data": "loc:text"}],
+        [{"text": "📍 Моя геолокация", "callback_data": "loc:current"}],
+        [{"text": "🗺 Указать на карте", "callback_data": "loc:map"}],
+        [{"text": "✍️ Ввести адрес", "callback_data": "loc:text"}],
     ]
 }
 
@@ -170,7 +170,7 @@ def set_commands(token):
     commands = [
         {"command": "start", "description": "Приветствие"},
         {"command": "invite", "description": "Активировать приглашение"},
-        {"command": "loc", "description": "Отправить геолокацию"},
+        {"command": "loc", "description": "Задать место"},
         {"command": "stats", "description": "Анализ появления"},
         {"command": "notify", "description": "Вкл/выкл уведомления"},
         {"command": "set", "description": "Задать настройку"},
@@ -602,9 +602,10 @@ def process_update(update, token, admins, data, users_path,
             return
         if cb_data.startswith("loc:"):
             if cb_data == "loc:current":
-                answer_callback(token, cid, "Отправьте геолокацию")
-                send_message(token, chat_id, "Нажмите кнопку ниже, чтобы отправить "
-                             "текущую геолокацию.", reply_markup=REQUEST_LOCATION_KEYBOARD)
+                answer_callback(token, cid, "Отправьте вашу геолокацию")
+                send_message(token, chat_id, "Нажмите кнопку ниже, чтобы "
+                             "поделиться геолокацией.",
+                             reply_markup=REQUEST_LOCATION_KEYBOARD)
             elif cb_data == "loc:map":
                 answer_callback(token, cid, "")
                 send_message(token, chat_id,
