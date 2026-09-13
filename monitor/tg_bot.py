@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
 """Многопользовательский Telegram-бот для настройки монитора топлива.
 
-Доступ — только по приглашению. Каждый пользователь хранит СВОИ настройки
-(координаты, радиус, топливо, ntfy-тему) в users.json, который коммитится
-обратно в репозиторий workflow'ом. Монитор (multi_watch.py) обходит всех
-пользователей и шлёт каждому push в его тему.
+Доступ — только по приглашению. Настройки пользователя (координаты, радиус,
+топливо, ntfy-тема) хранятся в users.json в приватном репозитории данных.
+Монитор (multi_watch.py) обходит всех пользователей и шлёт уведомления.
 
 Команды (пользователь):
   /start                — приветствие / регистрация (для админа — сразу)
   /invite <код>         — активировать приглашение
+  /loc                  — задать место (меню: геолокация/карта/адрес)
+  /stats                — персональный анализ подвоза
+  /notify               — вкл/выкл уведомления в боте
   /status               — мои настройки
-  /set lat 48.700       — задать настройку
-  /set lon 44.500
-  /set radius 8
-  /set fuel 92 95
-  /set topic <тема>     — моя ntfy-тема (как пароль)
   /help                 — помощь
 
 Команды (админ):
@@ -42,7 +39,6 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import data_store as ds
-import fuel_watch as fw
 
 TG_API = "https://api.telegram.org"
 BOT_USERNAME = "give_me_fuel_give_me_fire_bot"
@@ -56,7 +52,6 @@ SETTINGS = {
     "lon": ("lon", float),
     "radius": ("radius", float),
     "fuel": ("fuel", list),
-    "topic": ("topic", str),
 }
 
 HELP_TEXT = (
@@ -65,7 +60,7 @@ HELP_TEXT = (
     "  📊 Анализ — когда обычно бывает топливо\n"
     "  ⚙️ Настройки — радиус, топливо, уведомления\n"
     "  ❓ Помощь — эта справка\n\n"
-    "Уведомления приходят в этот чат и в приложение.\n"
+    "Уведомления приходят в этот чат.\n"
     "Данные: отметки водителей на gdebenz.ru."
 )
 
@@ -176,8 +171,6 @@ def set_commands(token):
         {"command": "loc", "description": "Отправить геолокацию"},
         {"command": "stats", "description": "Анализ подвоза"},
         {"command": "notify", "description": "Вкл/выкл уведомления"},
-        {"command": "status", "description": "Мои настройки"},
-        {"command": "topic", "description": "Тема push-уведомлений"},
         {"command": "set", "description": "Задать настройку"},
         {"command": "help", "description": "Помощь"},
     ]
@@ -338,7 +331,7 @@ def format_user(user):
     if lat is None or lon is None:
         text += "\n\n⚠️ Нажмите «📍 Геолокация», чтобы задать место."
     elif not enabled:
-        text += "\n\nВыключены только уведомления в боте. Push в ntfy продолжает приходить."
+        text += "\n\nУведомления в боте выключены."
 
     def mark(cond):
         return "✓ " if cond else ""
@@ -347,7 +340,7 @@ def format_user(user):
                   for r in (5, 10, 15)]
     radius_row.append({"text": "✏️ свой", "callback_data": "r:custom"})
     fuel_row = [{"text": f"{mark(f in fuel)}{f}", "callback_data": f"f:{f}"}
-                for f in ("92", "95", "ДТ")]
+                for f in ("92", "95", "100", "ДТ")]
     toggle = {"text": ("🔕 выключить в боте" if enabled else "🔔 включить в боте"),
               "callback_data": "t"}
     keyboard = {"inline_keyboard": [radius_row, fuel_row, [toggle]]}
@@ -524,33 +517,15 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
         return user_stats(data_repo, data_token, uid)
 
     if t.startswith("/test") or t == "test":
-        msg = "🔔 Тестовое уведомление. Если вы это видите — доставка работает."
-        parts = []
-        topic = user.get("topic")
-        if topic:
-            try:
-                fw.send_ntfy(topic, "Тест доставки", msg)
-                parts.append("ntfy ✅")
-            except Exception as e:
-                parts.append(f"ntfy ❌ ({e})")
-        else:
-            parts.append("ntfy: тема не задана")
         try:
-            send_message(token, uid, msg)
-            parts.append("telegram ✅")
+            send_message(token, uid, "🔔 Тестовое уведомление. Если вы это видите — "
+                                     "доставка работает.")
+            return "Тест отправлен."
         except Exception as e:
-            parts.append(f"telegram ❌ ({e})")
-        return "Тест доставки: " + ", ".join(parts)
+            return f"Ошибка отправки: {e}"
 
     if t.startswith("/loc") or t == "loc":
         return ("Как задать место? Выберите способ:", None, LOC_MENU)
-
-    if t.startswith("/topic") or t == "topic":
-        topic = user.get("topic")
-        return (f"Ваша тема push-уведомлений:\n<pre>{topic}</pre>\n"
-                f"Подпишитесь в приложении или откройте:\n"
-                f"<a href=\"https://ntfy.sh/{topic}\">https://ntfy.sh/{topic}</a>",
-                "HTML")
 
     if t.startswith("/notify") or t == "notify":
         enabled = not user.get("enabled", True)
