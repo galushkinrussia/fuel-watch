@@ -1,23 +1,28 @@
 # FuelWatch — статус проекта (handoff)
 
-Обновлено: 12 сентября 2026
-Проект: монитор топлива и чата водителей на АЗС Волгограда (gdebenz.ru).
+Обновлено: 13 сентября 2026
+Проект: **многопользовательский** монитор появления топлива и городского чата
+водителей (данные `gdebenz.ru`) с Telegram-ботом для настройки.
 
 ---
 
 ## 1. Что это теперь
 
-Система из трёх компонентов, работающих 24/7 в облаке (GitHub Actions),
-push — через **ntfy.sh** (телефон + браузер). Telegram больше не используется.
+Сервис на несколько пользователей, работающий 24/7 в облаке (GitHub Actions).
+Push на телефон — через **ntfy.sh**, плюс дубль в Telegram. Доступ к боту —
+**по приглашению**. Публичный репозиторий содержит **только код**; все данные —
+в отдельном **приватном** репозитории.
 
 | Компонент | Что делает |
 |---|---|
-| `monitor/fuel_watch.py` | опрашивает АЗС, push при появлении топлива (переход «нет → есть»), пишет историю в `history.jsonl` |
-| `monitor/chat_watch.py` | раз в час — LLM-сводка городского чата водителей (вместо спама отдельными сообщениями) |
-| `monitor/analyze.py` | анализ времени появления топлива по накопленной истории |
-| `analysis/ANALYSIS.md` | краткий разбор «где и когда стабильно дают бензин» (для публикации) |
-| `analysis/ANALYSIS-FULL.md` | полный разбор: все АЗС, время появления, гистограмма по часам |
-| `android/` (Kotlin) | автономное приложение на телефоне (не в проде, см. §7) |
+| `monitor/multi_watch.py` | обходит всех активных пользователей, опрашивает их координаты, шлёт push в личную ntfy-тему + Telegram; копит историю |
+| `monitor/tg_bot.py` | Telegram-бот: регистрация по приглашению, настройка места/радиуса/топлива, персональный анализ |
+| `monitor/data_store.py` | чтение/запись данных в приватный репозиторий через GitHub Contents API |
+| `monitor/chat_watch.py` | раз в час — тезисная LLM-сводка городского чата водителей |
+| `monitor/analyze.py` | анализ времени появления топлива по накопленной истории (в т.ч. персональный) |
+| `monitor/fuel_watch.py` | однопользовательский монитор (локально / для одного человека) |
+| `monitor/migrate_data.py` | разовая миграция старых данных в приватный репо |
+| `android/` (Kotlin) | автономное приложение на телефоне (в проде не используется, см. §9) |
 
 ---
 
@@ -40,8 +45,12 @@ push — через **ntfy.sh** (телефон + браузер). Telegram бо
 внешний бесплатный cron**: [cron-job.org](https://cron-job.org) дёргает API
 GitHub по расписанию (`workflow_dispatch`).
 
-- `fuel-monitor` — опрос АЗС каждые 15 мин.
-- `chat-monitor` — сводка чата раз в час.
+| Workflow | Что делает | Интервал |
+|---|---|---|
+| `fuel-monitor` | `multi_watch.py once` — опрос всех пользователей | 15 мин |
+| `chat-monitor` | `chat_watch.py once` — сводка чата | час |
+| `tg-bot-config` | `tg_bot.py once` — обработка команд бота | ~1 мин |
+| `migrate-data` | разовый перенос старых данных | однократно |
 
 В cron-job.org для каждого workflow создаётся задание **POST** на:
 ```
@@ -49,103 +58,137 @@ https://api.github.com/repos/<ЛОГИН>/<РЕПО>/actions/workflows/<workflow
 ```
 с заголовком `Authorization: Bearer <PAT>` и телом `{"ref":"main"}`.
 
-Раннеры GitHub без памяти → состояние коммитится обратно в репозиторий:
-- `state.json` — последний статус АЗС (для детекции «нет → есть»);
+---
+
+## 4. Данные в приватном репозитории
+
+Публичный репо — только код. Все данные лежат в отдельном **приватном**
+репозитории (`DATA_REPO`) и читаются/пишутся через GitHub Contents API
+(`monitor/data_store.py`) по `DATA_PAT`:
+
+- `users.json` — пользователи и приглашения;
+- `users_state.json` — состояние детекции топлива по пользователям;
+- `sends.jsonl` — журнал отправок;
+- `tg_bot_state.json` — offset long polling бота;
 - `chat_state.json` — `last_id` последнего сообщения чата;
-- `history.jsonl` — накопленная история снимков (для анализа появления топлива).
+- `history.jsonl` — накопленная история снимков (для анализа появления).
+
+Локально (без `DATA_REPO`/`DATA_PAT`) скрипты работают с обычными файлами —
+удобно для разработки. Файлы данных закрыты в `.gitignore`.
 
 ---
 
-## 4. Текущее состояние
+## 5. Переменные и секреты (Settings → Secrets and variables → Actions)
 
-- Репозиторий: **https://github.com/galushkinrussia/fuel-watch** (публичный).
-- Remote — SSH (`git@github.com:galushkinrussia/fuel-watch.git`), логин `galushkinrussia`.
-- **Облако работает**: `history.jsonl` накопил ~18 тыс. записей, последний
-  снимок — 2026-09-12T08:15Z; `chat_state.json` обновлён 12.09 08:00.
-- Локальный монитор на Linux-машине остановлен.
+**Variables:**
 
-### Переменные репозитория (Settings → Secrets and variables → Actions)
+| Переменная | Назначение |
+|---|---|
+| `CHAT_CITY` | slug города для сводки чата (напр. `volgograd`) |
+| `CHAT_TOPIC` | общая ntfy-тема для сводки чата |
+| `TELEGRAM_ADMIN` | `user_id` админа бота (выдаёт приглашения) |
+| `DATA_REPO` | `owner/repo` приватного репозитория с данными |
 
-Variables:
-| Переменная | Пример | Назначение |
-|---|---|---|
-| `LAT` | `<широта>` | центр поиска |
-| `LON` | `<долгота>` | центр поиска |
-| `RADIUS` | `8` | радиус, км |
-| `FUEL` | `92 95` | марки для монитора |
-| `TOPIC` | `fuelwatch-...` | ntfy-тема топлива |
-| `CHAT_CITY` | `volgograd` | slug города для чата |
-| `CHAT_TOPIC` | `fuelwatch-chat-...` | ntfy-тема чата |
+**Secrets:**
 
-Secrets:
 | Секрет | Назначение |
 |---|---|
 | `LLM_API_KEY` | ключ DeepSeek (или др. OpenAI-совместимого) для сводки чата |
+| `TELEGRAM_BOT_TOKEN` | токен Telegram-бота |
+| `DATA_PAT` | PAT с правами **contents** на приватный репо (`DATA_REPO`) |
 
-> Точные имена тем ntfy в репо НЕ хранятся (они в Variables) — это хорошо,
-> т.к. имя темы фактически пароль.
+> Координаты, радиус, топливо и ntfy-темы **пользователей** задаются через бота
+> и хранятся в `users.json` в приватном репо — не в GitHub Variables.
 
 ---
 
-## 5. Команды
+## 6. Бот: регистрация и команды
+
+Бот: **@give_me_fuel_give_me_fire_bot**. Доступ по приглашению.
+
+Пользователь:
+```
+/start              — приветствие / регистрация
+/invite <код>       — активировать приглашение
+/loc                — задать место (геолокация / карта / адрес)
+/stats              — персональный анализ появления топлива
+/notify             — вкл/выкл уведомления в боте
+/status             — мои настройки
+/set radius 8 fuel 92 95 — задать вручную
+/help               — помощь
+```
+Админ (`TELEGRAM_ADMIN`):
+```
+/newinvite          — создать код приглашения
+/listusers          — список пользователей
+```
+
+Пользователь становится «активным» (получает уведомления), когда задал
+геолокацию. Кнопки: 📍 Геолокация, 📊 Анализ, ⚙️ Настройки, ❓ Помощь.
+
+---
+
+## 7. Команды (CLI)
 
 ```bash
-# топливо — посмотреть сейчас
-python3 monitor/fuel_watch.py list --lat <LAT> --lon <LON> --radius 8 --fuel 92 95
+# многопользовательский опрос
+python3 monitor/multi_watch.py once --users users.json --state users_state.json
+python3 monitor/multi_watch.py loop --users users.json --interval 180
 
-# топливо — локальный цикл (ПК/сервер)
-python3 monitor/fuel_watch.py watch --lat <LAT> --lon <LON> --radius 8 --fuel 92 95 --topic <тема> --interval 180
-
-# топливо — один опрос (для cron/облака)
-python3 monitor/fuel_watch.py once --topic <тема> --state state.json --history history.jsonl
+# бот
+python3 monitor/tg_bot.py once --token <токен> --admin <user_id>
+python3 monitor/tg_bot.py loop --token <токен> --admin <user_id>
 
 # чат — одна сводка
 python3 monitor/chat_watch.py once --city volgograd --topic <тема> --state chat_state.json
 
 # анализ появления топлива
-python3 monitor/analyze.py --history history.jsonl --min 2 --tz 3 --hourly
-python3 monitor/analyze.py --history history.jsonl --station Лукойл
+python3 monitor/analyze.py --min 2 --tz 3 --hourly
+python3 monitor/analyze.py --data-repo owner/repo --data-token <PAT> --md analysis/ANALYSIS-FULL.md
 ```
 
-Переменные окружения: `FUELWATCH_LAT/LON/RADIUS/FUEL/TOPIC/STATE/HISTORY/INTERVAL`,
-`CHATWATCH_CITY/TOPIC/STATE`, `LLM_API_KEY/LLM_BASE_URL/LLM_MODEL`.
+Переменные окружения: `MULTI_USERS/STATE/INTERVAL`, `TELEGRAM_BOT_TOKEN`,
+`TELEGRAM_ADMIN`, `USERS_FILE`, `TGBOT_STATE`, `DATA_REPO`, `DATA_PAT`,
+`CHATWATCH_CITY/TOPIC/STATE`, `LLM_API_KEY/LLM_BASE_URL/LLM_MODEL`,
+`FUELWATCH_*` (для однопользовательского).
 
-Уведомление о топливе содержит название/адрес АЗС, марки, деталь (очередь/
-лимит) и **ссылку на Яндекс.Карты** (`Click`-заголовок ntfy — тап открывает карту).
+Уведомление о топливе содержит АЗС, марки, деталь (очередь/лимит) и **ссылку на
+Яндекс.Карты** (`Click`-заголовок ntfy — тап открывает карту).
 
 ---
 
-## 6. Файлы (что где)
+## 8. Файлы (что где)
 
-- `.github/workflows/fuel-monitor.yml`, `chat-monitor.yml` — CI.
-- `monitor/fuel_watch.py`, `chat_watch.py`, `analyze.py` — скрипты.
-- `monitor/config.example.json` — пример локального конфига.
-- `state.json`, `chat_state.json`, `history.jsonl` — состояние/история (трекаются в git).
-- `analysis/ANALYSIS.md` — краткий разбор; `analysis/ANALYSIS-FULL.md` — полный.
+- `.github/workflows/` — `fuel-monitor.yml`, `chat-monitor.yml`,
+  `tg-bot-config.yml`, `migrate-data.yml`.
+- `monitor/` — `multi_watch.py`, `tg_bot.py`, `data_store.py`, `chat_watch.py`,
+  `analyze.py`, `fuel_watch.py`, `migrate_data.py`, `config.example.json`.
+- `analysis/ANALYSIS.md` — краткий разбор для публикации;
+  `analysis/ANALYSIS-FULL.md` — полный отчёт по АЗС.
 - `android/` — мобильное приложение.
 - `README.md` — основная документация (актуальна).
 
 ---
 
-## 7. Известные проблемы / заметки
+## 9. Известные проблемы / заметки
 
 - **Android-приложение** собрано только как debug (`FuelWatch-debug.apk`);
   debug-подпись вызывала ложное срабатывание антивируса Сбербанка. В проде не
-  используется — основное развёртывание облачное.
-- **`FuelWatch-debug.zip`** (~5 МБ бинарник) лежит в репозитории — по просьбе
-  пользователя оставлен, не удалён.
-- **Токен Telegram-бота** был ранее засвечен в `ps aux` при локальном запуске.
-  Telegram не используется, но токен стоит отозвать в `@BotFather` (/revoke).
-- Функция Telegram всё ещё есть в `fuel_watch.py` (`--tg-token`/`--tg-chat`),
-  но не задействована.
-- Координаты в коде не зашиты — задаются переменными/флагами (жёстких дефолтов нет).
+  используется.
+- **`FuelWatch-debug.zip`** (~5 МБ) лежит в репозитории — по просьбе оставлен.
+- **Токен старого Telegram-бота** был засвечен в `ps aux`; если он совпадает с
+  текущим `TELEGRAM_BOT_TOKEN` — отозвать в `@BotFather` (`/revoke`).
+- Раньше данные (`users_state.json`, `sends.jsonl`, `chat_state.json`,
+  `history.jsonl`) коммитились в публичный репо — перенесены в приватный
+  (`migrate-data`), в публичном удалены.
+- Уведомления чата могут «молчать», если в чате нет новых сообщений (это норма,
+  а не сбой). Сообщения, пришедшие сразу после прогона, ждут следующего часа.
 
 ---
 
-## 8. Бэклог / идеи
+## 10. Бэклог / идеи
 
-- Вшить точные координаты нужной точки наблюдения.
 - Собрать подписанный release-APK (убрать ложное срабатывание Сбера).
 - Добавить цену в текст уведомления.
-- Пароль (access token) на темы ntfy, если репо публичный.
+- Пароль (access token) на темы ntfy.
 - Автопост `analysis/ANALYSIS.md` в соцсети/каналы.
