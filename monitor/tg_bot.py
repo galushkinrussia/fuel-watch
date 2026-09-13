@@ -320,6 +320,8 @@ def format_user(user):
             f"🔔 Уведомления: {'вкл' if enabled else 'выкл'}")
     if lat is None or lon is None:
         text += "\n\n⚠️ Нажмите «📍 Геолокация», чтобы задать место."
+    elif not enabled:
+        text += "\n\n⏸ Уведомления выключены, но данные собираются для анализа."
 
     def mark(cond):
         return "✓ " if cond else ""
