@@ -41,12 +41,15 @@ DEFAULT_USERS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "
 DEFAULT_STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "users_state.json")
 
 
-def send_telegram(token, chat_id, text):
+def send_telegram(token, chat_id, text, parse_mode=None):
     """Дублирует уведомление в чат пользователя с ботом (chat_id = user_id)."""
     if not token:
         return
     url = f"{TG_API}/bot{token}/sendMessage"
-    data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode("utf-8")
+    params = {"chat_id": chat_id, "text": text}
+    if parse_mode:
+        params["parse_mode"] = parse_mode
+    data = urllib.parse.urlencode(params).encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST")
     with urllib.request.urlopen(req, timeout=20) as r:
         r.read()
@@ -144,10 +147,8 @@ def poll_user(uid, u, state, tg_token=None, sends_buf=None, history_acc=None,
         if avail and prev is False:
             label = fw.station_label(s)
             fuels = ", ".join(sorted(fw.station_fuels(s))) or "?"
-            text = f"{label}\n{fuels}\n{s.get('detail') or ''}".strip()
-            map_url = fw.station_map_url(s)
-            if map_url:
-                text += f"\n{map_url}"
+            text, map_url = fw.build_notification(s)
+            tg_text, _ = fw.build_notification(s, html_mode=True)
             # ntfy — только для админа (остальным уведомления идут в Telegram)
             ntfy_ok = False
             if admins and str(uid) in admins:
@@ -160,11 +161,12 @@ def poll_user(uid, u, state, tg_token=None, sends_buf=None, history_acc=None,
                     print(f"  -> ntfy FAIL: {e}")
             else:
                 print(f"  -> ntfy пропущен (не админ): {label}")
-            # Telegram-дубль — только если уведомления в боте включены
+            # Telegram — только если уведомления включены
             telegram_ok = False
             if tg_token and u.get("enabled", True):
                 try:
-                    send_telegram(tg_token, uid, "⛽ Бензин появился\n\n" + text)
+                    send_telegram(tg_token, uid, "⛽ Бензин появился\n\n" + tg_text,
+                                  parse_mode="HTML")
                     telegram_ok = True
                     print(f"  -> telegram ok: {label}")
                 except Exception as e:

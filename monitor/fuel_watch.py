@@ -103,6 +103,39 @@ def station_map_url(s):
     return ""
 
 
+def build_notification(s, html_mode=False):
+    """Текст уведомления о появлении топлива (без дублей марок).
+
+    detail с gdebenz.ru обычно уже начинается со списка марок
+    («92, 95 · Очередь…»), поэтому отдельную строку с марками добавляем
+    только если их нет в detail. При html_mode ссылка на карту оформляется
+    как ссылка с подписью (для Telegram, parse_mode=HTML).
+    Возвращает (text, map_url).
+    """
+    import html as _html
+    esc = _html.escape if html_mode else (lambda x: x)
+
+    label = esc(station_label(s))
+    fuels = esc(", ".join(sorted(station_fuels(s))))
+    detail = esc((s.get("detail") or "").strip())
+    map_url = station_map_url(s)
+
+    lines = [label]
+    if detail:
+        if fuels and fuels not in detail:
+            lines.append(fuels)
+        lines.append(detail)
+    elif fuels:
+        lines.append(fuels)
+    if map_url:
+        if html_mode:
+            href = map_url.replace("&", "&amp;")
+            lines.append(f'<a href="{href}">🗺 Открыть на карте</a>')
+        else:
+            lines.append(map_url)
+    return "\n".join(lines), map_url
+
+
 def send_ntfy(topic, title, message, priority="high", tags="fuel", click=None):
     headers = {
         "Title": title.encode("utf-8"),
@@ -200,11 +233,7 @@ class Monitor:
             avail = station_available(s, self.wanted)
             prev = self.state.get(str(osm), {}).get("avail")
             if avail and prev is False:
-                fuels = ", ".join(sorted(station_fuels(s))) or "?"
-                map_url = station_map_url(s)
-                text = f"{station_label(s)}\n{fuels}\n{s.get('detail') or ''}".strip()
-                if map_url:
-                    text += f"\n{map_url}"
+                text, map_url = build_notification(s)
                 self._notify(text, click=map_url or None)
             elif avail and prev is None:
                 pass  # впервые видим с топливом — фиксируем без уведомления
