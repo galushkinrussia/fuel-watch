@@ -148,7 +148,7 @@ REQUEST_LOCATION_KEYBOARD = {
 # меню способов задать место
 LOC_MENU = {
     "inline_keyboard": [
-        [{"text": "📍 Моя геолокация", "callback_data": "loc:current"}],
+        [{"text": "📍 Отправить автоматически", "callback_data": "loc:current"}],
         [{"text": "🗺 Указать на карте", "callback_data": "loc:map"}],
         [{"text": "✍️ Ввести адрес", "callback_data": "loc:text"}],
     ]
