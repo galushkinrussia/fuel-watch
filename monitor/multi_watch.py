@@ -142,31 +142,32 @@ def poll_user(uid, u, state, tg_token=None, sends_buf=None, history_acc=None):
         prev = state.get(osm, {}).get("avail")
         if avail and prev is False:
             label = fw.station_label(s)
-            if not u.get("enabled", True):
-                print(f"  (уведомления выключены, пропуск) {label}")
-            else:
-                fuels = ", ".join(sorted(fw.station_fuels(s))) or "?"
-                text = f"{label}\n{fuels}\n{s.get('detail') or ''}".strip()
-                map_url = fw.station_map_url(s)
-                if map_url:
-                    text += f"\n{map_url}"
-                ntfy_ok = False
+            fuels = ", ".join(sorted(fw.station_fuels(s))) or "?"
+            text = f"{label}\n{fuels}\n{s.get('detail') or ''}".strip()
+            map_url = fw.station_map_url(s)
+            if map_url:
+                text += f"\n{map_url}"
+            # ntfy — всегда (отключение в боте на него не влияет)
+            ntfy_ok = False
+            try:
+                fw.send_ntfy(u["topic"], "⛽ Бензин появился", text,
+                             click=map_url or None)
+                ntfy_ok = True
+                print(f"  -> notify ok: {label}")
+            except Exception as e:
+                print(f"  -> ntfy FAIL: {e}")
+            # Telegram-дубль — только если уведомления в боте включены
+            telegram_ok = False
+            if tg_token and u.get("enabled", True):
                 try:
-                    fw.send_ntfy(u["topic"], "⛽ Бензин появился", text,
-                                 click=map_url or None)
-                    ntfy_ok = True
-                    print(f"  -> notify ok: {label}")
+                    send_telegram(tg_token, uid, "⛽ Бензин появился\n\n" + text)
+                    telegram_ok = True
+                    print(f"  -> telegram ok: {label}")
                 except Exception as e:
-                    print(f"  -> ntfy FAIL: {e}")
-                telegram_ok = False
-                if tg_token:
-                    try:
-                        send_telegram(tg_token, uid, "⛽ Бензин появился\n\n" + text)
-                        telegram_ok = True
-                        print(f"  -> telegram ok: {label}")
-                    except Exception as e:
-                        print(f"  -> telegram FAIL: {e}")
-                _log_send(sends_buf, uid, label, fuels, ntfy_ok, telegram_ok)
+                    print(f"  -> telegram FAIL: {e}")
+            elif tg_token:
+                print(f"  (в боте выключено, telegram пропущен) {label}")
+            _log_send(sends_buf, uid, label, fuels, ntfy_ok, telegram_ok)
         elif not avail and prev:
             print(f"  (закончился) {fw.station_label(s)}")
         state[osm] = {

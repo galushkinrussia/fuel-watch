@@ -317,11 +317,11 @@ def format_user(user):
             f"📍 Локация: {loc}\n"
             f"📏 Радиус: {radius} км\n"
             f"⛽ Топливо: {', '.join(fuel) if fuel else '—'}\n"
-            f"🔔 Уведомления: {'вкл' if enabled else 'выкл'}")
+            f"🔔 Уведомления в боте: {'вкл' if enabled else 'выкл'}")
     if lat is None or lon is None:
         text += "\n\n⚠️ Нажмите «📍 Геолокация», чтобы задать место."
     elif not enabled:
-        text += "\n\n⏸ Уведомления выключены, но данные собираются для анализа."
+        text += "\n\nВыключены только уведомления в боте. Push в ntfy продолжает приходить."
 
     def mark(cond):
         return "✓ " if cond else ""
@@ -330,7 +330,8 @@ def format_user(user):
                   for r in (5, 8, 15)]
     fuel_row = [{"text": f"{mark(f in fuel)}{f}", "callback_data": f"f:{f}"}
                 for f in ("92", "95", "ДТ")]
-    toggle = {"text": "🔔 выключить" if enabled else "🔔 включить", "callback_data": "t"}
+    toggle = {"text": ("🔕 выключить в боте" if enabled else "🔔 включить в боте"),
+              "callback_data": "t"}
     keyboard = {"inline_keyboard": [radius_row, fuel_row, [toggle]]}
     return text, None, keyboard
 
@@ -351,7 +352,7 @@ def apply_callback(user, cb_data):
         return f"Топливо: {', '.join(fuels) if fuels else '—'}"
     if cb_data == "t":
         user["enabled"] = not user.get("enabled", True)
-        return "Уведомления " + ("включены" if user["enabled"] else "выключены")
+        return "Уведомления в боте " + ("включены" if user["enabled"] else "выключены")
     return ""
 
 
@@ -486,7 +487,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
         enabled = not user.get("enabled", True)
         user["enabled"] = enabled
         data["users"][uid] = user
-        return ("Уведомления о заправках: " + ("включены ✅" if enabled else "выключены ⏸"))
+        return ("Уведомления в боте: " + ("включены ✅" if enabled else "выключены ⏸"))
 
     if t.startswith("/setup"):
         set_commands(token)
