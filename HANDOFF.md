@@ -122,6 +122,7 @@ https://api.github.com/repos/<ЛОГИН>/<РЕПО>/actions/workflows/<workflow
 ```
 /newinvite          — создать код приглашения
 /listusers          — список пользователей
+/broadcast [текст]  — обновить клавиатуру и меню у всех
 /topic              — своя ntfy-тема (только для админа)
 ```
 

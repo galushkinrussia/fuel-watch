@@ -73,6 +73,7 @@ ADMIN_HELP = (
     "\n\nАдмин:\n"
     "  /newinvite — создать код приглашения\n"
     "  /listusers — список пользователей\n"
+    "  /broadcast [текст] — обновить клавиатуру/меню у всех\n"
     "  /topic — своя ntfy-тема (уведомления админа)"
 )
 
@@ -499,6 +500,24 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
             act = "✅" if (us.get("lat") and us.get("lon")) else "—"
             lines.append(f"  {act} {u} ({us.get('username')})")
         return "\n".join(lines)
+
+    if t.startswith("/broadcast"):
+        if not admin:
+            return "Недостаточно прав."
+        try:
+            set_commands(token)  # обновить меню команд (глобально)
+        except Exception as e:
+            print(f"  -> set_commands FAIL: {e}")
+        msg = t[len("/broadcast"):].strip() or "🔄 Обновил меню — кнопки внизу актуальны."
+        n = 0
+        for uid2 in list(data["users"].keys()):
+            try:
+                send_message(token, uid2, msg, reply_markup=MAIN_KEYBOARD)
+                n += 1
+                time.sleep(0.05)
+            except Exception as e:
+                print(f"  -> broadcast FAIL {uid2}: {e}")
+        return f"Разослано {n} пользователям, меню команд обновлено."
 
     # --- пользовательские команды (нужна регистрация) ---
     if not registered:
