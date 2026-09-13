@@ -33,6 +33,7 @@
 import argparse
 import json
 import os
+import re
 import secrets
 import sys
 import time
@@ -344,6 +345,7 @@ def format_user(user):
 
     radius_row = [{"text": f"{mark(float(radius) == r)}{r} км", "callback_data": f"r:{r}"}
                   for r in (5, 10, 15)]
+    radius_row.append({"text": "✏️ свой", "callback_data": "r:custom"})
     fuel_row = [{"text": f"{mark(f in fuel)}{f}", "callback_data": f"f:{f}"}
                 for f in ("92", "95", "ДТ")]
     toggle = {"text": ("🔕 выключить в боте" if enabled else "🔔 включить в боте"),
@@ -495,6 +497,23 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
             return f"Место задано: {name}\nlat = {lat}\nlon = {lon}"
         data["users"][uid] = user
 
+    # ожидаем радиус числом
+    if user.get("await_radius"):
+        user["await_radius"] = False
+        if t and not t.startswith("/") and t not in BUTTONS:
+            m = re.search(r"\d+(?:[.,]\d+)?", t)
+            if not m:
+                data["users"][uid] = user
+                return "Не понял. Пришлите число, например: 12"
+            val = float(m.group(0).replace(",", "."))
+            if not (1 <= val <= 100):
+                data["users"][uid] = user
+                return "Радиус должен быть от 1 до 100 км."
+            user["radius"] = val
+            data["users"][uid] = user
+            return f"Радиус: {val:g} км"
+        data["users"][uid] = user
+
     if (t.startswith("/status") or t.startswith("/settings")
             or t in ("status", "settings")):
         return format_user(user)
@@ -590,6 +609,12 @@ def process_update(update, token, admins, data, users_path,
                 send_message(token, chat_id,
                              "Пришлите город или адрес текстом, например: "
                              "«Волгоград, центр».")
+            return
+        if cb_data == "r:custom":
+            user["await_radius"] = True
+            data["users"][uid] = user
+            answer_callback(token, cid, "")
+            send_message(token, chat_id, "Пришлите радиус в километрах, например: 12")
             return
         toast = apply_callback(user, cb_data)
         data["users"][uid] = user
