@@ -398,6 +398,22 @@ def geocode(query):
     return float(item["lat"]), float(item["lon"]), item.get("display_name", query)
 
 
+def location_ok(user, place=None):
+    """Единое подтверждение: место задано, монитор следит."""
+    radius = user.get("radius", 10)
+    fuel = user.get("fuel") or []
+    fuel_str = ("марки " + ", ".join(fuel)) if fuel else "все марки"
+    lines = []
+    if place:
+        if len(place) > 90:
+            place = place[:87] + "…"
+        lines.append(f"📍 Место: {place}")
+    lines.append(f"Готово! Слежу за топливом в радиусе {radius:g} км ({fuel_str}).")
+    lines.append("Уведомление придёт, когда появится топливо.")
+    lines.append("Настроить — «⚙️ Настройки»")
+    return "\n".join(lines)
+
+
 def handle_location(data, user_id, location):
     """Записывает геолокацию пользователя в lat/lon."""
     uid = str(user_id)
@@ -408,13 +424,7 @@ def handle_location(data, user_id, location):
     user["lat"] = lat
     user["lon"] = lon
     data["users"][uid] = user
-    radius = user.get("radius", 10)
-    fuel = user.get("fuel") or []
-    fuel_str = ("марки " + ", ".join(fuel)) if fuel else "все марки"
-    return (f"Готово! Слежу за топливом в радиусе {radius:g} км "
-            f"({fuel_str}).\n"
-            f"Уведомление придёт, когда появится топливо.\n"
-            f"Настроить — «⚙️ Настройки»")
+    return location_ok(user)
 
 
 def handle_command(text, chat_id, user_id, username, admins, token, data, users_path,
@@ -496,7 +506,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
                         "«Волгоград, центр» или «ул. Ленина, 1».")
             user["lat"], user["lon"] = lat, lon
             data["users"][uid] = user
-            return f"Место задано: {name}\nlat = {lat}\nlon = {lon}"
+            return location_ok(user, place=name)
         data["users"][uid] = user
 
     # ожидаем радиус числом
