@@ -9,7 +9,7 @@
   /start                — приветствие / регистрация (для админа — сразу)
   /invite <код>         — активировать приглашение
   /loc                  — задать место (меню: геолокация/карта/адрес)
-  /stats                — персональный анализ подвоза
+  /stats                — персональный анализ появления топлива
   /notify               — вкл/выкл уведомления в боте
   /status               — мои настройки
   /help                 — помощь
@@ -169,7 +169,7 @@ def set_commands(token):
         {"command": "start", "description": "Приветствие"},
         {"command": "invite", "description": "Активировать приглашение"},
         {"command": "loc", "description": "Отправить геолокацию"},
-        {"command": "stats", "description": "Анализ подвоза"},
+        {"command": "stats", "description": "Анализ появления"},
         {"command": "notify", "description": "Вкл/выкл уведомления"},
         {"command": "set", "description": "Задать настройку"},
         {"command": "help", "description": "Помощь"},
@@ -368,7 +368,7 @@ def apply_callback(user, cb_data):
 
 
 def user_stats(data_repo, data_token, user_id):
-    """Персональный анализ подвоза по истории пользователя."""
+    """Персональный анализ появления топлива по истории пользователя."""
     if not (data_repo and data_token):
         return "Анализ доступен только в облачном режиме."
     try:

@@ -158,7 +158,7 @@ class Monitor:
             json.dump(self.state, f, ensure_ascii=False, indent=2)
 
     def _append_history(self, stations):
-        """Дописывает снимок всех АЗС в history.jsonl (для анализа графиков подвоза)."""
+        """Дописывает снимок всех АЗС в history.jsonl (для анализа появления топлива)."""
         if not self.history_file:
             return
         t = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Анализ времени подвоза топлива по history.jsonl.
+"""Анализ времени появления топлива по history.jsonl.
 
 Читает историю снимков (history.jsonl), находит переходы «нет -> есть/очередь»
-(признак подвоза) по каждой АЗС и выводит сводку: сколько раз и когда привозили.
+(признак появления топлива) по каждой АЗС и выводит сводку: сколько раз и когда появлялось топливо.
 
 Историю можно читать из приватного репозитория (DATA_REPO + DATA_PAT) —
 тогда не нужно ничего скачивать вручную.
@@ -28,6 +28,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import data_store as ds
 
 AVAIL = {"yes", "queue"}
+
+
+def plural_form(n, one, few, many):
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return few
+    return many
 
 
 def parse_records(text):
@@ -94,11 +102,11 @@ def build_markdown(recs, results, tz):
         add(f"История: **{len(recs)} записей, {len(snaps)} снимков**, "
             f"{snaps[0][:16]} — {snaps[-1][:16]} (UTC). Время — UTC{tz:+d}.\n")
 
-    add("## Все АЗС с подвозами (по убыванию)\n")
+    add("## Все АЗС с появлением топлива (по убыванию)\n")
     for r in results:
         n = len(r["deliveries"])
         add(f"### {r['brand']} · {r['addr']}\n")
-        add(f"- Подвозов: **{n}**")
+        add(f"- Появлений: **{n}**")
         add(f"- Время: {', '.join(fmt_time(t, tz) for t in r['deliveries'])}")
         if r["out_of_fuel"]:
             add(f"- Заканчивался: {len(r['out_of_fuel'])} раз")
@@ -108,7 +116,7 @@ def build_markdown(recs, results, tz):
     for r in results:
         for t in r["deliveries"]:
             hours[hour_of(t, tz)] += 1
-    add(f"## Распределение подвоза по часам (UTC{tz:+d})\n")
+    add(f"## Распределение появления топлива по часам (UTC{tz:+d})\n")
     add("```")
     for h in range(24):
         if hours.get(h):
@@ -123,8 +131,8 @@ def build_markdown(recs, results, tz):
         mh, mc = Counter(hh).most_common(1)[0]
         consist.append((r, mh, mc))
     consist.sort(key=lambda x: (-x[2], -len(x[0]["deliveries"])))
-    add("## Самые устойчивые по времени АЗС (>=3 подвоза)\n")
-    add("| АЗС | Подвозов | Час-мода |")
+    add("## Самые устойчивые по времени АЗС (>=3 появлений)\n")
+    add("| АЗС | Появлений | Час-мода |")
     add("|---|---|---|")
     for r, mh, mc in consist:
         add(f"| {r['brand']} · {r['addr']} | {len(r['deliveries'])} | {mh:02d}:00 ({mc}) |")
@@ -142,7 +150,7 @@ def build_digest(recs, results, tz=3):
              f"{snaps[-1][8:10]}.{snaps[-1][5:7]} ({len(snaps)} снимков)"]
     if not results:
         lines.append("")
-        lines.append("Подвозов пока не замечено — наберите историю за пару дней.")
+        lines.append("Появлений пока не замечено — наберите историю за пару дней.")
         return "\n".join(lines)
 
     hours = Counter()
@@ -161,16 +169,16 @@ def build_digest(recs, results, tz=3):
         hh = [hour_of(t, tz) for t in r["deliveries"]]
         mh = Counter(hh).most_common(1)[0][0]
         lines.append(f"  • {r['brand']}, {r['addr']} — "
-                     f"{len(r['deliveries'])} подвоз(ов), обычно ~{mh:02d}:00")
+                     f"{len(r['deliveries'])} {plural_form(len(r['deliveries']), 'появление', 'появления', 'появлений')}, обычно ~{mh:02d}:00")
     return "\n".join(lines)
 
 
 def main():
-    p = argparse.ArgumentParser(description="Анализ подвоза топлива")
+    p = argparse.ArgumentParser(description="Анализ появления топлива")
     p.add_argument("--history", default="history.jsonl", help="путь/имя history.jsonl")
     p.add_argument("--data-repo", help="owner/repo приватного репо (или DATA_REPO)")
     p.add_argument("--data-token", help="PAT с правами contents (или DATA_PAT)")
-    p.add_argument("--min", type=int, default=1, help="показывать АЗС с >= N подвозами")
+    p.add_argument("--min", type=int, default=1, help="показывать АЗС с >= N появлениями")
     p.add_argument("--user", help="фильтр по user_id (персональный анализ)")
     p.add_argument("--station", help="фильтр по названию/адресу (подстрока)")
     p.add_argument("--tz", type=int, default=0, help="сдвиг часового пояса, ч (3 = Москва)")
@@ -222,17 +230,17 @@ def main():
         if n < args.min:
             continue
         shown += 1
-        print(f"{r['brand']} · {r['addr']}\n  {n} подвоз(ов): "
+        print(f"{r['brand']} · {r['addr']}\n  {n} {plural_form(n, 'появление', 'появления', 'появлений')}: "
               f"{', '.join(fmt_time(t, args.tz) for t in r['deliveries'])}\n")
     if shown == 0:
-        print("Нет АЗС с подвозами по заданному фильтру.")
+        print("Нет АЗС с появлением топлива по заданному фильтру.")
 
     if args.hourly:
         hours = Counter()
         for r in results:
             for t in r["deliveries"]:
                 hours[hour_of(t, args.tz)] += 1
-        print(f"\nРаспределение подвозов по часам суток ({tz_sfx}):")
+        print(f"\nРаспределение появления топлива по часам суток ({tz_sfx}):")
         for h in range(24):
             if hours.get(h):
                 print(f"  {h:02d}:00  {'#' * hours[h]}")

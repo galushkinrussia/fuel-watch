@@ -9,7 +9,7 @@
 | `monitor/tg_bot.py` | Telegram-бот (по приглашению): регистрация и настройка пользователей |
 | `monitor/fuel_watch.py` | однопользовательский монитор (локально/для одного человека) |
 | `monitor/chat_watch.py` | релей городского чата водителей — разовая **LLM-сводка** вместо спама |
-| `monitor/analyze.py` | анализ накопленной истории — время подвоза топлива по АЗС |
+| `monitor/analyze.py` | анализ накопленной истории — время появления топлива по АЗС |
 | `android/` (Kotlin) | автономное приложение, опрашивает API прямо на телефоне (без бэкенда) |
 
 Работает 24/7 в облаке (GitHub Actions) — push в ntfy на телефон. Каждый
@@ -99,19 +99,19 @@ python3 monitor/chat_watch.py once --city volgograd --topic <тема> --state c
 
 ---
 
-## 3. Анализ времени подвоза (`analyze.py`)
+## 3. Анализ времени появления топлива (`analyze.py`)
 
-Читает накопленный `history.jsonl` и находит переходы «нет → есть» (= подвоз)
+Читает накопленный `history.jsonl` и находит переходы «нет → есть» (= появление топлива)
 по каждой АЗС.
 
 ```bash
 python3 monitor/analyze.py --history history.jsonl            # все АЗС
-python3 monitor/analyze.py --history history.jsonl --min 2    # с 2+ подвозами
+python3 monitor/analyze.py --history history.jsonl --min 2    # с 2+ появлениями
 python3 monitor/analyze.py --history history.jsonl --station Лукойл
 python3 monitor/analyze.py --history history.jsonl --tz 3 --hourly   # время по Москве
 ```
 
-> Для надёжного «графика подвоза» нужно несколько дней данных (коллектор
+> Для надёжного «графика появления топлива» нужно несколько дней данных (коллектор
 > копит их автоматически при каждом опросе).
 
 ---
@@ -195,7 +195,7 @@ Workflow запускаются **только вручную** (`workflow_dispa
 Команды (для продвинутых):
 ```
 /invite <код>       — активировать приглашение
-/stats              — персональный анализ подвоза
+/stats              — персональный анализ появления топлива
 /notify             — вкл/выкл уведомления
 /status             — настройки
 /topic              — тема push-уведомлений
