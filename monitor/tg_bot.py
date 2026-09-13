@@ -8,7 +8,7 @@
 Команды (пользователь):
   /start                — приветствие / регистрация (для админа — сразу)
   /invite <код>         — активировать приглашение
-  /loc                  — задать место (меню: геолокация/карта/адрес)
+  /loc                  — местоположение (меню: автоматически/карта/адрес)
   /stats                — персональный анализ появления топлива
   /notify               — вкл/выкл уведомления в боте
   /status               — мои настройки
@@ -174,7 +174,7 @@ def set_commands(token):
     commands = [
         {"command": "start", "description": "Приветствие"},
         {"command": "invite", "description": "Активировать приглашение"},
-        {"command": "loc", "description": "Задать место"},
+        {"command": "loc", "description": "Местоположение"},
         {"command": "stats", "description": "Анализ появления"},
         {"command": "status", "description": "Мои настройки"},
         {"command": "notify", "description": "Вкл/выкл уведомления"},
