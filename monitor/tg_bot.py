@@ -54,12 +54,16 @@ SETTINGS = {
     "fuel": ("fuel", list),
 }
 
+# слова-отмены при вводе адреса/радиуса
+CANCEL_WORDS = {"отмена", "назад", "отменить", "cancel", "стоп"}
+
 HELP_TEXT = (
     "Как пользоваться:\n"
     "  🧭 Задать место — выбрать способ\n"
     "  📊 Анализ — когда обычно бывает топливо\n"
     "  ⚙️ Настройки — радиус, топливо, уведомления\n"
     "  ❓ Помощь — эта справка\n\n"
+    "Показать настройки — /status\n"
     "Проверить доставку уведомлений — /test\n"
     "Уведомления приходят в этот чат.\n"
     "Данные: отметки водителей на gdebenz.ru."
@@ -151,6 +155,7 @@ LOC_MENU = {
         [{"text": "📍 Отправить автоматически", "callback_data": "loc:current"}],
         [{"text": "🗺 Указать на карте", "callback_data": "loc:map"}],
         [{"text": "✍️ Ввести адрес", "callback_data": "loc:text"}],
+        [{"text": "❌ Отмена", "callback_data": "loc:cancel"}],
     ]
 }
 
@@ -160,7 +165,6 @@ HISTORY_FILE = "history.jsonl"
 BUTTONS = {
     "🧭 Задать место": "loc",
     "📊 Анализ": "stats",
-    "🔔 Уведомления": "notify",
     "⚙️ Настройки": "settings",
     "❓ Помощь": "help",
 }
@@ -172,6 +176,7 @@ def set_commands(token):
         {"command": "invite", "description": "Активировать приглашение"},
         {"command": "loc", "description": "Задать место"},
         {"command": "stats", "description": "Анализ появления"},
+        {"command": "status", "description": "Мои настройки"},
         {"command": "notify", "description": "Вкл/выкл уведомления"},
         {"command": "set", "description": "Задать настройку"},
         {"command": "test", "description": "Проверить доставку уведомлений"},
@@ -330,11 +335,11 @@ def format_user(user):
             f"📍 Локация: {loc}\n"
             f"📏 Радиус: {radius} км\n"
             f"⛽ Топливо: {', '.join(fuel) if fuel else '—'}\n"
-            f"🔔 Уведомления в боте: {'вкл' if enabled else 'выкл'}")
+            f"🔔 Уведомления: {'вкл' if enabled else 'выкл'}")
     if lat is None or lon is None:
         text += "\n\n⚠️ Нажмите «🧭 Задать место», чтобы указать его."
     elif not enabled:
-        text += "\n\nУведомления в боте выключены."
+        text += "\n\nУведомления выключены."
 
     def mark(cond):
         return "✓ " if cond else ""
@@ -344,7 +349,7 @@ def format_user(user):
     radius_row.append({"text": "✏️ свой", "callback_data": "r:custom"})
     fuel_row = [{"text": f"{mark(f in fuel)}{f}", "callback_data": f"f:{f}"}
                 for f in ("92", "95", "100", "ДТ")]
-    toggle = {"text": ("🔕 выключить в боте" if enabled else "🔔 включить в боте"),
+    toggle = {"text": ("🔕 выключить" if enabled else "🔔 включить"),
               "callback_data": "t"}
     keyboard = {"inline_keyboard": [radius_row, fuel_row, [toggle]]}
     return text, None, keyboard
@@ -366,7 +371,7 @@ def apply_callback(user, cb_data):
         return f"Топливо: {', '.join(fuels) if fuels else '—'}"
     if cb_data == "t":
         user["enabled"] = not user.get("enabled", True)
-        return "Уведомления в боте " + ("включены" if user["enabled"] else "выключены")
+        return "Уведомления " + ("включены" if user["enabled"] else "выключены")
     return ""
 
 
@@ -433,6 +438,8 @@ def handle_location(data, user_id, location):
     lat, lon = location
     user["lat"] = lat
     user["lon"] = lon
+    user.pop("await_address", None)
+    user.pop("await_radius", None)
     data["users"][uid] = user
     return location_ok(user)
 
@@ -500,6 +507,9 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
     # ожидаем адрес/город текстом
     if user.get("await_address"):
         user["await_address"] = False
+        if t.lower() in CANCEL_WORDS:
+            data["users"][uid] = user
+            return "Хорошо, отменил. Задать место можно кнопкой «🧭 Задать место»."
         if t and not t.startswith("/") and t not in BUTTONS:
             try:
                 lat, lon, name = geocode(t)
@@ -518,6 +528,9 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
     # ожидаем радиус числом
     if user.get("await_radius"):
         user["await_radius"] = False
+        if t.lower() in CANCEL_WORDS:
+            data["users"][uid] = user
+            return "Хорошо, отменил. Радиус можно задать в «⚙️ Настройки»."
         if t and not t.startswith("/") and t not in BUTTONS:
             m = re.search(r"\d+(?:[.,]\d+)?", t)
             if not m:
@@ -545,6 +558,10 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
         return "Уведомления приходят в этот чат (Telegram)."
 
     if t.startswith("/stats") or t == "stats":
+        if user.get("lat") is None or user.get("lon") is None:
+            return ("📊 Сначала задайте место — нажмите «🧭 Задать место».\n"
+                    "После этого я начну собирать данные и смогу показать, "
+                    "когда обычно появляется топливо рядом.")
         return user_stats(data_repo, data_token, uid)
 
     if t.startswith("/test") or t == "test":
@@ -562,9 +579,11 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
         enabled = not user.get("enabled", True)
         user["enabled"] = enabled
         data["users"][uid] = user
-        return ("Уведомления в боте: " + ("включены ✅" if enabled else "выключены ⏸"))
+        return ("Уведомления: " + ("включены ✅" if enabled else "выключены ⏸"))
 
     if t.startswith("/setup"):
+        if not admin:
+            return "Недостаточно прав."
         set_commands(token)
         return "Команды зарегистрированы в меню."
 
@@ -617,13 +636,21 @@ def process_update(update, token, admins, data, users_path,
                 answer_callback(token, cid, "")
                 send_message(token, chat_id,
                              "Пришлите город или адрес текстом, например: "
-                             "«Волгоград, центр».")
+                             "«Волгоград, центр». Чтобы отменить — напишите «отмена».")
+            elif cb_data == "loc:cancel":
+                user.pop("await_address", None)
+                user.pop("await_radius", None)
+                data["users"][uid] = user
+                answer_callback(token, cid, "Отменено")
+                send_message(token, chat_id, "Хорошо, отменил.",
+                             reply_markup=MAIN_KEYBOARD)
             return
         if cb_data == "r:custom":
             user["await_radius"] = True
             data["users"][uid] = user
             answer_callback(token, cid, "")
-            send_message(token, chat_id, "Пришлите радиус в километрах, например: 12")
+            send_message(token, chat_id, "Пришлите радиус в километрах, например: 12. "
+                         "Чтобы отменить — напишите «отмена».")
             return
         toast = apply_callback(user, cb_data)
         data["users"][uid] = user
