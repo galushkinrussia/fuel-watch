@@ -134,10 +134,26 @@ def answer_callback(token, callback_id, text=None):
 
 MAIN_KEYBOARD = {
     "keyboard": [
-        [{"text": "📍 Геолокация", "request_location": True}, {"text": "📊 Анализ"}],
+        [{"text": "📍 Геолокация"}, {"text": "📊 Анализ"}],
         [{"text": "⚙️ Настройки"}, {"text": "❓ Помощь"}],
     ],
     "resize_keyboard": True,
+}
+
+# одноразовая клавиатура «отправить текущую геолокацию»
+REQUEST_LOCATION_KEYBOARD = {
+    "keyboard": [[{"text": "📍 Отправить геолокацию", "request_location": True}]],
+    "resize_keyboard": True,
+    "one_time_keyboard": True,
+}
+
+# меню способов задать место
+LOC_MENU = {
+    "inline_keyboard": [
+        [{"text": "📍 Текущая геолокация", "callback_data": "loc:current"}],
+        [{"text": "🗺 Выбрать на карте", "callback_data": "loc:map"}],
+        [{"text": "✍️ Написать адрес", "callback_data": "loc:text"}],
+    ]
 }
 
 HISTORY_FILE = "history.jsonl"
@@ -373,6 +389,19 @@ def user_stats(data_repo, data_token, user_id):
     return az.build_digest(mine, az.analyze(mine), tz=3)
 
 
+def geocode(query):
+    """Nominatim (OpenStreetMap): адрес/город → (lat, lon, display_name)."""
+    url = "https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode(
+        {"q": query, "format": "json", "limit": 1, "accept-language": "ru"})
+    req = urllib.request.Request(url, headers={"User-Agent": "FuelWatchBot/1.0"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        data = json.loads(r.read().decode("utf-8"))
+    if not data:
+        return None, None, None
+    item = data[0]
+    return float(item["lat"]), float(item["lon"]), item.get("display_name", query)
+
+
 def handle_location(data, user_id, location):
     """Записывает геолокацию пользователя в lat/lon."""
     uid = str(user_id)
@@ -448,7 +477,26 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
     if not registered:
         return REGISTER_PROMPT
 
-    if t.startswith("/status") or t.startswith("/settings") or t in ("status", "settings"):
+    # ожидаем адрес/город текстом
+    if user.get("await_address"):
+        user["await_address"] = False
+        if t and not t.startswith("/") and t not in BUTTONS:
+            try:
+                lat, lon, name = geocode(t)
+            except Exception as e:
+                data["users"][uid] = user
+                return f"Не удалось определить адрес: {e}"
+            if lat is None:
+                data["users"][uid] = user
+                return ("Не нашёл такой адрес. Попробуйте иначе, например: "
+                        "«Волгоград, центр» или «ул. Ленина, 1».")
+            user["lat"], user["lon"] = lat, lon
+            data["users"][uid] = user
+            return f"Место задано: {name}\nlat = {lat}\nlon = {lon}"
+        data["users"][uid] = user
+
+    if (t.startswith("/status") or t.startswith("/settings")
+            or t in ("status", "settings")):
         return format_user(user)
 
     if t.startswith("/stats") or t == "stats":
@@ -474,7 +522,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
         return "Тест доставки: " + ", ".join(parts)
 
     if t.startswith("/loc") or t == "loc":
-        return "Нажмите кнопку 📍 Геолокация под полем ввода."
+        return ("Как задать место? Выберите способ:", None, LOC_MENU)
 
     if t.startswith("/topic") or t == "topic":
         topic = user.get("topic")
@@ -522,14 +570,32 @@ def process_update(update, token, admins, data, users_path,
         uid = str(from_id)
         user = data["users"].get(uid)
         print(f"[{time.strftime('%H:%M:%S')}] callback от {from_id}: {cb_data!r}")
-        if user:
-            toast = apply_callback(user, cb_data)
-            data["users"][uid] = user
-            answer_callback(token, cid, toast)
-            text, _, keyboard = format_user(user)
-            edit_message(token, chat_id, message_id, text, reply_markup=keyboard)
-        else:
+        if not user:
             answer_callback(token, cid, "Сначала зарегистрируйтесь")
+            return
+        if cb_data.startswith("loc:"):
+            if cb_data == "loc:current":
+                answer_callback(token, cid, "Отправьте геолокацию")
+                send_message(token, chat_id, "Нажмите кнопку ниже, чтобы отправить "
+                             "текущую геолокацию.", reply_markup=REQUEST_LOCATION_KEYBOARD)
+            elif cb_data == "loc:map":
+                answer_callback(token, cid, "")
+                send_message(token, chat_id,
+                             "Выбор на карте: нажмите скрепку 📎 → «Геопозиция» → "
+                             "«Выбрать на карте», поставьте точку и отправьте.")
+            elif cb_data == "loc:text":
+                user["await_address"] = True
+                data["users"][uid] = user
+                answer_callback(token, cid, "")
+                send_message(token, chat_id,
+                             "Пришлите город или адрес текстом, например: "
+                             "«Волгоград, центр».")
+            return
+        toast = apply_callback(user, cb_data)
+        data["users"][uid] = user
+        answer_callback(token, cid, toast)
+        text, _, keyboard = format_user(user)
+        edit_message(token, chat_id, message_id, text, reply_markup=keyboard)
         return
 
     text, chat_id, user_id, username, location = extract_message(update)
