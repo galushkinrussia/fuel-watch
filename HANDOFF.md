@@ -14,9 +14,9 @@ push — через **ntfy.sh** (телефон + браузер). Telegram бо
 |---|---|
 | `monitor/fuel_watch.py` | опрашивает АЗС, push при появлении топлива (переход «нет → есть»), пишет историю в `history.jsonl` |
 | `monitor/chat_watch.py` | раз в час — LLM-сводка городского чата водителей (вместо спама отдельными сообщениями) |
-| `monitor/analyze.py` | анализ времени подвоза топлива по накопленной истории |
+| `monitor/analyze.py` | анализ времени появления топлива по накопленной истории |
 | `analysis/ANALYSIS.md` | краткий разбор «где и когда стабильно дают бензин» (для публикации) |
-| `analysis/ANALYSIS-FULL.md` | полный разбор: все АЗС, время подвоза, гистограмма по часам |
+| `analysis/ANALYSIS-FULL.md` | полный разбор: все АЗС, время появления, гистограмма по часам |
 | `android/` (Kotlin) | автономное приложение на телефоне (не в проде, см. §7) |
 
 ---
@@ -52,7 +52,7 @@ https://api.github.com/repos/<ЛОГИН>/<РЕПО>/actions/workflows/<workflow
 Раннеры GitHub без памяти → состояние коммитится обратно в репозиторий:
 - `state.json` — последний статус АЗС (для детекции «нет → есть»);
 - `chat_state.json` — `last_id` последнего сообщения чата;
-- `history.jsonl` — накопленная история снимков (для анализа подвоза).
+- `history.jsonl` — накопленная история снимков (для анализа появления топлива).
 
 ---
 
@@ -102,7 +102,7 @@ python3 monitor/fuel_watch.py once --topic <тема> --state state.json --histo
 # чат — одна сводка
 python3 monitor/chat_watch.py once --city volgograd --topic <тема> --state chat_state.json
 
-# анализ подвоза
+# анализ появления топлива
 python3 monitor/analyze.py --history history.jsonl --min 2 --tz 3 --hourly
 python3 monitor/analyze.py --history history.jsonl --station Лукойл
 ```
