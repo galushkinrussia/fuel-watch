@@ -67,7 +67,8 @@ HELP_TEXT = (
 ADMIN_HELP = (
     "\n\nАдмин:\n"
     "  /newinvite — создать код приглашения\n"
-    "  /listusers — список пользователей"
+    "  /listusers — список пользователей\n"
+    "  /topic — своя ntfy-тема (уведомления админа)"
 )
 
 REGISTER_PROMPT = (
@@ -466,7 +467,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
             return "Пользователей нет."
         lines = ["Пользователи:"]
         for u, us in data["users"].items():
-            act = "✅" if (us.get("lat") and us.get("lon") and us.get("topic")) else "—"
+            act = "✅" if (us.get("lat") and us.get("lon")) else "—"
             lines.append(f"  {act} {u} ({us.get('username')})")
         return "\n".join(lines)
 
@@ -512,6 +513,14 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
     if (t.startswith("/status") or t.startswith("/settings")
             or t in ("status", "settings")):
         return format_user(user)
+
+    if t.startswith("/topic") or t == "topic":
+        if admin:
+            topic = user.get("topic") or "(не задана)"
+            return (f"🔔 Ваша ntfy-тема (только для админа):\n{topic}\n\n"
+                    f"Подпишитесь в приложении ntfy или откройте:\n"
+                    f"https://ntfy.sh/{topic}")
+        return "Уведомления приходят в этот чат (Telegram)."
 
     if t.startswith("/stats") or t == "stats":
         return user_stats(data_repo, data_token, uid)

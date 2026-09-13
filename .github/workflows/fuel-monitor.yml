@@ -1,7 +1,8 @@
 name: fuel-monitor
 
 # Многопользовательский монитор топлива. Читает users.json и для каждого
-# активного пользователя опрашивает его координаты, шлёт push в его ntfy-тему.
+# активного пользователя опрашивает его координаты, шлёт уведомление в Telegram
+# (админу — дополнительно в ntfy).
 # Все данные (users.json, users_state.json, sends.jsonl) хранятся в отдельном
 # приватном репозитории (DATA_REPO) через GitHub API — публичный репо только код.
 # Запускается из внешнего cron (cron-job.org) через workflow_dispatch —
@@ -28,4 +29,5 @@ jobs:
           DATA_REPO: ${{ vars.DATA_REPO }}
           DATA_PAT: ${{ secrets.DATA_PAT }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN: ${{ vars.TELEGRAM_ADMIN }}
         run: python3 monitor/multi_watch.py once

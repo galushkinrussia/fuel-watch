@@ -2,8 +2,9 @@
 """Многопользовательский монитор топлива.
 
 Читает users.json (настройки пользователей) и для каждого активного
-пользователя опрашивает его координаты, шлёт push в его ntfy-тему при
-появлении топлива. Состояние детекции хранится в users_state.json.
+пользователя опрашивает его координаты, шлёт уведомление в Telegram (админу —
+дополнительно в его ntfy-тему) при появлении топлива. Состояние детекции
+хранится в users_state.json.
 
 users.json можно хранить в приватном GitHub-репозитории (через DATA_REPO
 и DATA_PAT) — тогда координаты/темы пользователей не попадают в публичный код.
@@ -86,12 +87,11 @@ def save_state(path, state):
 
 
 def active_users(users):
-    """Пользователи с координатами и темой. Опрашиваются всегда (для истории),
-    независимо от того, включены ли им уведомления."""
+    """Пользователи с координатами. Опрашиваются всегда (для истории),
+    независимо от уведомлений; ntfy шлём только админу."""
     out = {}
     for uid, u in users.get("users", {}).items():
-        if (u.get("lat") is not None and u.get("lon") is not None
-                and u.get("topic")):
+        if u.get("lat") is not None and u.get("lon") is not None:
             out[uid] = u
     return out
 
@@ -120,7 +120,8 @@ def _read_local(path):
     return ""
 
 
-def poll_user(uid, u, state, tg_token=None, sends_buf=None, history_acc=None):
+def poll_user(uid, u, state, tg_token=None, sends_buf=None, history_acc=None,
+              admins=None):
     wanted = u.get("fuel") or []
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     stations, updated = fw.fetch_stations(u["lat"], u["lon"], u.get("radius", 10))
@@ -147,15 +148,18 @@ def poll_user(uid, u, state, tg_token=None, sends_buf=None, history_acc=None):
             map_url = fw.station_map_url(s)
             if map_url:
                 text += f"\n{map_url}"
-            # ntfy — всегда (отключение в боте на него не влияет)
+            # ntfy — только для админа (остальным уведомления идут в Telegram)
             ntfy_ok = False
-            try:
-                fw.send_ntfy(u["topic"], "⛽ Бензин появился", text,
-                             click=map_url or None)
-                ntfy_ok = True
-                print(f"  -> notify ok: {label}")
-            except Exception as e:
-                print(f"  -> ntfy FAIL: {e}")
+            if admins and str(uid) in admins:
+                try:
+                    fw.send_ntfy(u["topic"], "⛽ Бензин появился", text,
+                                 click=map_url or None)
+                    ntfy_ok = True
+                    print(f"  -> ntfy ok (админ): {label}")
+                except Exception as e:
+                    print(f"  -> ntfy FAIL: {e}")
+            else:
+                print(f"  -> ntfy пропущен (не админ): {label}")
             # Telegram-дубль — только если уведомления в боте включены
             telegram_ok = False
             if tg_token and u.get("enabled", True):
@@ -179,7 +183,7 @@ def poll_user(uid, u, state, tg_token=None, sends_buf=None, history_acc=None):
 
 
 def poll_all(users_path, state_path, repo=None, token=None, tg_token=None,
-             sends_path=None, history_path=None):
+             sends_path=None, history_path=None, admins=None):
     users = load_users(users_path, repo=repo, token=token)
     remote = bool(repo and token)
     if remote:
@@ -203,7 +207,8 @@ def poll_all(users_path, state_path, repo=None, token=None, tg_token=None,
         ustate = state.setdefault(str(uid), {})
         try:
             updated, n = poll_user(uid, u, ustate, tg_token=tg_token,
-                                   sends_buf=sends_buf, history_acc=history_acc)
+                                   sends_buf=sends_buf, history_acc=history_acc,
+                                   admins=admins)
             print(f"[{time.strftime('%H:%M:%S')}] user {uid}: "
                   f"updated={updated}, станций={n}")
         except Exception as e:
@@ -253,7 +258,7 @@ def cmd_once(args):
     print(f"[{time.strftime('%H:%M:%S')}] хранилище данных: {_storage_note(args)}")
     n = poll_all(args.users, args.state, repo=args.data_repo, token=args.data_token,
                  tg_token=args.telegram_token, sends_path=args.sends,
-                 history_path=args.history)
+                 history_path=args.history, admins=parse_admins(args.admin))
     print(f"активных пользователей: {n}")
     return 0
 
@@ -265,7 +270,7 @@ def cmd_loop(args):
         try:
             poll_all(args.users, args.state, repo=args.data_repo, token=args.data_token,
                      tg_token=args.telegram_token, sends_path=args.sends,
-                     history_path=args.history)
+                     history_path=args.history, admins=parse_admins(args.admin))
         except Exception as e:
             print(f"ошибка цикла: {e}")
         try:
@@ -285,6 +290,7 @@ def main():
         sp.add_argument("--data-repo", help="owner/repo приватного репо с users.json")
         sp.add_argument("--data-token", help="PAT с правами contents")
         sp.add_argument("--telegram-token", help="токен бота для дубля в Telegram (или TELEGRAM_BOT_TOKEN)")
+        sp.add_argument("--admin", help="user_id админа(ов) через запятую — им шлём ntfy (или TELEGRAM_ADMIN)")
         sp.add_argument("--sends", default=None, help="файл журнала отправок (JSONL)")
         sp.add_argument("--history", default=None, help="файл истории снимков (JSONL)")
 
@@ -313,8 +319,16 @@ def _env_override(args):
     apply("data_repo", "DATA_REPO")
     apply("data_token", "DATA_PAT")
     apply("telegram_token", "TELEGRAM_BOT_TOKEN")
+    apply("admin", "TELEGRAM_ADMIN")
     apply("sends", "MULTI_SENDS")
     apply("history", "MULTI_HISTORY")
+
+
+def parse_admins(raw):
+    """'123,456' -> {'123','456'}"""
+    if not raw:
+        return set()
+    return {s.strip() for s in str(raw).split(",") if s.strip()}
 
 
 if __name__ == "__main__":
