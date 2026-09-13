@@ -450,6 +450,30 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
     if t.startswith("/stats") or t == "stats":
         return user_stats(data_repo, data_token, uid)
 
+    if t.startswith("/test") or t == "test":
+        msg = "🔔 Тестовое уведомление. Если вы это видите — доставка работает."
+        parts = []
+        topic = user.get("topic")
+        if topic:
+            try:
+                req = urllib.request.Request(
+                    f"https://ntfy.sh/{urllib.parse.quote(topic)}",
+                    data=msg.encode("utf-8"),
+                    headers={"Title": "Тест"},
+                    method="POST")
+                urllib.request.urlopen(req, timeout=15).read()
+                parts.append("ntfy ✅")
+            except Exception as e:
+                parts.append(f"ntfy ❌ ({e})")
+        else:
+            parts.append("ntfy: тема не задана")
+        try:
+            send_message(token, uid, msg)
+            parts.append("telegram ✅")
+        except Exception as e:
+            parts.append(f"telegram ❌ ({e})")
+        return "Тест доставки: " + ", ".join(parts)
+
     if t.startswith("/loc") or t == "loc":
         return "Нажмите кнопку 📍 Геолокация под полем ввода."
 
