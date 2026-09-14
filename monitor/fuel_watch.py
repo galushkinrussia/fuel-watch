@@ -115,7 +115,11 @@ def build_notification(s, html_mode=False):
     import html as _html
     esc = _html.escape if html_mode else (lambda x: x)
 
-    label = esc(station_label(s))
+    label = station_label(s)
+    dist = s.get("distance_km")
+    if isinstance(dist, (int, float)):
+        label += f" · {dist:.1f} км"
+    label = esc(label)
     fuels = esc(", ".join(sorted(station_fuels(s))))
     detail = esc((s.get("detail") or "").strip())
     map_url = station_map_url(s)
