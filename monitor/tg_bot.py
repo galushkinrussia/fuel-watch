@@ -152,7 +152,7 @@ REQUEST_LOCATION_KEYBOARD = {
     "one_time_keyboard": True,
 }
 
-# меню способов задать место
+# меню способов указать местоположение
 LOC_MENU = {
     "inline_keyboard": [
         [{"text": "📍 Отправить автоматически", "callback_data": "loc:current"}],
@@ -329,7 +329,7 @@ def apply_set(user, key, value):
 def format_user(user):
     """Экран настроек с инлайн-кнопками. Возвращает (text, inline_keyboard)."""
     lat, lon = user.get("lat"), user.get("lon")
-    loc = f"{lat:.4f}, {lon:.4f}" if lat is not None and lon is not None else "не задано"
+    loc = f"{lat:.4f}, {lon:.4f}" if lat is not None and lon is not None else "не указано"
     radius = user.get("radius", 10)
     fuel = user.get("fuel") or []
     enabled = user.get("enabled", True)
@@ -417,7 +417,7 @@ def geocode(query):
 
 
 def location_ok(user, place=None):
-    """Единое подтверждение: место задано, монитор следит."""
+    """Единое подтверждение: местоположение указано, монитор следит."""
     radius = user.get("radius", 10)
     fuel = user.get("fuel") or []
     fuel_str = ("марки " + ", ".join(fuel)) if fuel else "все марки"
@@ -580,7 +580,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
 
     if t.startswith("/stats") or t == "stats":
         if user.get("lat") is None or user.get("lon") is None:
-            return ("📊 Сначала задайте местоположение — нажмите «🧭 Местоположение».\n"
+            return ("📊 Сначала укажите местоположение — нажмите «🧭 Местоположение».\n"
                     "После этого я начну собирать данные и смогу показать, "
                     "в какое время появляется топливо рядом.")
         return user_stats(data_repo, data_token, uid)
@@ -594,7 +594,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
             return f"Ошибка отправки: {e}"
 
     if t.startswith("/loc") or t == "loc":
-        return ("Как задать местоположение? Выберите способ:", None, LOC_MENU)
+        return ("Как указать местоположение? Выберите способ:", None, LOC_MENU)
 
     if t.startswith("/notify") or t == "notify":
         enabled = not user.get("enabled", True)
