@@ -19,6 +19,7 @@
 """
 
 import argparse
+import datetime
 import json
 import os
 import sys
@@ -58,7 +59,9 @@ def load_records(path):
 
 def fmt_time(t, tz):
     """'2026-09-08T06:30:44Z' -> '08.09 06:30' со сдвигом на tz часов."""
-    return f"{t[8:10]}.{t[5:7]} {(int(t[11:13]) + tz) % 24:02d}:{t[14:16]}"
+    dt = datetime.datetime.strptime(t, "%Y-%m-%dT%H:%M:%SZ")
+    dt += datetime.timedelta(hours=tz)
+    return dt.strftime("%d.%m %H:%M")
 
 
 def hour_of(t, tz):
@@ -159,9 +162,11 @@ def build_digest(recs, results, tz=3):
                 "закономерности, нужно 2–3 дня. Загляните позже.")
     snaps = sorted({r["t"] for r in recs})
     days = {r["t"][:10] for r in recs}
+    tz_lbl = "UTC" if tz == 0 else f"UTC{tz:+d}"
     lines = ["📊 Анализ по вашим АЗС", "",
-             f"Данные: {snaps[0][8:10]}.{snaps[0][5:7]} — "
-             f"{snaps[-1][8:10]}.{snaps[-1][5:7]} ({len(snaps)} снимков)"]
+             f"Период: {fmt_time(snaps[0], tz)} — {fmt_time(snaps[-1], tz)} "
+             f"({tz_lbl}, {len(snaps)} "
+             f"{plural_form(len(snaps), 'обновление', 'обновления', 'обновлений')})"]
     if not results:
         lines.append("")
         lines.append("Появлений топлива пока не замечено — это нормально на старте. "
@@ -180,7 +185,12 @@ def build_digest(recs, results, tz=3):
     for h, c in hours.most_common(4):
         lines.append(f"  • {h:02d}:00–{(h + 1) % 24:02d}:00  ({c})")
 
-    top = sorted(results, key=lambda r: (-len(r["deliveries"]), r["brand"], r["addr"]))[:5]
+    def _dist_key(r):
+        d = r.get("dist")
+        return d if isinstance(d, (int, float)) else 1e9
+
+    top = sorted(results, key=lambda r: (-len(r["deliveries"]), _dist_key(r),
+                                         r["brand"], r["addr"]))[:5]
     lines.append("")
     if max_n >= 3:
         lines.append("АЗС с 3+ появлениями:")
