@@ -84,8 +84,11 @@ def analyze(recs):
                 elif st not in AVAIL and prev in AVAIL:
                     out_of_fuel.append(r["t"])
             prev = st
+        dists = [r.get("dist") for r in recs
+                 if isinstance(r.get("dist"), (int, float))]
         if deliveries:
             results.append({"brand": brand, "addr": addr,
+                            "dist": min(dists) if dists else None,
                             "deliveries": deliveries, "out_of_fuel": out_of_fuel})
     return results
 
@@ -140,6 +143,14 @@ def build_markdown(recs, results, tz):
     return "\n".join(lines)
 
 
+def _station_line(r):
+    base = f"{r['brand']}, {r['addr']}"
+    dist = r.get("dist")
+    if isinstance(dist, (int, float)):
+        base += f" ({dist:.1f} км)"
+    return base
+
+
 def build_digest(recs, results, tz=3):
     """Короткая персональная сводка (для отправки пользователю)."""
     if not recs:
@@ -147,6 +158,7 @@ def build_digest(recs, results, tz=3):
                 "История собирается автоматически; чтобы появились "
                 "закономерности, нужно 2–3 дня. Загляните позже.")
     snaps = sorted({r["t"] for r in recs})
+    days = {r["t"][:10] for r in recs}
     lines = ["📊 Анализ по вашим АЗС", "",
              f"Данные: {snaps[0][8:10]}.{snaps[0][5:7]} — "
              f"{snaps[-1][8:10]}.{snaps[-1][5:7]} ({len(snaps)} снимков)"]
@@ -156,6 +168,9 @@ def build_digest(recs, results, tz=3):
                      "Обычно нужно 2–3 дня. Загляните позже.")
         return "\n".join(lines)
 
+    total = sum(len(r["deliveries"]) for r in results)
+    max_n = max(len(r["deliveries"]) for r in results)
+
     hours = Counter()
     for r in results:
         for t in r["deliveries"]:
@@ -163,16 +178,32 @@ def build_digest(recs, results, tz=3):
     lines.append("")
     lines.append("Чаще всего топливо появляется:")
     for h, c in hours.most_common(4):
-        lines.append(f"  • {h:02d}:00–{h + 1:02d}:00  ({c})")
+        lines.append(f"  • {h:02d}:00–{(h + 1) % 24:02d}:00  ({c})")
 
-    top = sorted(results, key=lambda r: -len(r["deliveries"]))[:5]
+    top = sorted(results, key=lambda r: (-len(r["deliveries"]), r["brand"], r["addr"]))[:5]
     lines.append("")
-    lines.append("Стабильнее всего:")
-    for r in top:
-        hh = [hour_of(t, tz) for t in r["deliveries"]]
-        mh = Counter(hh).most_common(1)[0][0]
-        lines.append(f"  • {r['brand']}, {r['addr']} — "
-                     f"{len(r['deliveries'])} {plural_form(len(r['deliveries']), 'появление', 'появления', 'появлений')}, обычно ~{mh:02d}:00")
+    if max_n >= 3:
+        lines.append("АЗС с 3+ появлениями:")
+        for r in top:
+            if len(r["deliveries"]) < 3:
+                continue
+            hh = [hour_of(t, tz) for t in r["deliveries"]]
+            mh, mc = Counter(hh).most_common(1)[0]
+            when = f"чаще всего ~{mh:02d}:00" if mc >= 2 else "время разное"
+            lines.append(f"  • {_station_line(r)} — {len(r['deliveries'])} "
+                         f"{plural_form(len(r['deliveries']), 'появление', 'появления', 'появлений')}, {when}")
+    else:
+        lines.append("Где замечали появление:")
+        for r in top:
+            hh = sorted({hour_of(t, tz) for t in r["deliveries"]})
+            times = ", ".join(f"~{h:02d}:00" for h in hh)
+            lines.append(f"  • {_station_line(r)} — "
+                         f"{len(r['deliveries'])} "
+                         f"{plural_form(len(r['deliveries']), 'раз', 'раза', 'раз')} в {times}")
+
+    if len(days) < 3 or total < 10:
+        lines.append("")
+        lines.append("⚠️ Данных пока мало — картина станет точнее через 2–3 дня.")
     return "\n".join(lines)
 
 
