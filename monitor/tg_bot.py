@@ -146,7 +146,7 @@ MAIN_KEYBOARD = {
     "resize_keyboard": True,
 }
 
-# одноразовая клавиатура «отправить текущее местоположение»
+# одноразовая клавиатура «📤 Отправить местоположение»
 REQUEST_LOCATION_KEYBOARD = {
     "keyboard": [[{"text": "📤 Отправить местоположение", "request_location": True}]],
     "resize_keyboard": True,
