@@ -63,8 +63,10 @@ HELP_TEXT = (
     "  ⚙️ Настройки — радиус, топливо, уведомления\n"
     "  📊 Анализ — когда обычно бывает топливо\n"
     "  ❓ Помощь — эта справка\n\n"
-    "Показать настройки — /status\n"
-    "Проверить доставку уведомлений — /test\n"
+    "Команды:\n"
+    "  /status — мои настройки\n"
+    "  /notify — вкл/выкл уведомления\n"
+    "  /test — проверить доставку уведомлений\n\n"
     "Уведомления приходят в этот чат.\n"
     "Данные: отметки водителей на gdebenz.ru."
 )
@@ -288,7 +290,7 @@ def redeem_invite(data, user_id, username, code):
         return False, "Этот код уже использован."
     user = register_user(data, user_id, username)
     inv["used_by"] = str(user_id)
-    return True, ("Готово! Осталось задать место — нажмите «🧭 Местоположение» ниже.\n\n"
+    return True, ("Готово! Осталось указать местоположение — нажмите «🧭 Местоположение» ниже.\n\n"
                   + HELP_TEXT)
 
 
@@ -319,7 +321,7 @@ def apply_set(user, key, value):
     field, cast = SETTINGS[key]
     try:
         user[field] = value.split() if cast is list else cast(value)
-        return True, f"OK: {key} = {value}"
+        return True, f"Готово: {key} = {value}"
     except (ValueError, TypeError):
         return False, f"Неверное значение для {key}: {value}"
 
@@ -333,10 +335,10 @@ def format_user(user):
     enabled = user.get("enabled", True)
 
     text = (f"⚙️ Настройки\n\n"
-            f"📍 Локация: {loc}\n"
+            f"🧭 Местоположение: {loc}\n"
             f"📏 Радиус: {radius} км\n"
             f"⛽ Топливо: {', '.join(fuel) if fuel else '—'}\n"
-            f"🔔 Уведомления: {'вкл' if enabled else 'выкл'}")
+            f"🔔 Уведомления: {'включены' if enabled else 'выключены'}")
     if lat is None or lon is None:
         text += "\n\n⚠️ Нажмите «🧭 Местоположение», чтобы указать его."
     elif not enabled:
@@ -423,7 +425,7 @@ def location_ok(user, place=None):
     if place:
         if len(place) > 90:
             place = place[:87] + "…"
-        lines.append(f"📍 Место: {place}")
+        lines.append(f"🧭 Местоположение: {place}")
     lines.append(f"Готово! Слежу за топливом в радиусе {radius:g} км ({fuel_str}).")
     lines.append("Уведомление придёт, когда появится топливо.")
     lines.append("Настроить — «⚙️ Настройки»")
@@ -460,7 +462,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
     if t.startswith("/start"):
         if admin and not registered:
             user = register_user(data, user_id, username)
-            return ("Вы админ. Задайте место кнопкой «🧭 Местоположение».\n\n" + HELP_TEXT)
+            return ("Вы админ. Укажите местоположение кнопкой «🧭 Местоположение».\n\n" + HELP_TEXT)
         if registered:
             user = register_user(data, user_id, username)  # дозаполнит тему, если её нет
             return "С возвращением!\n\n" + HELP_TEXT
@@ -487,7 +489,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
                 f"(https://t.me/{BOT_USERNAME})\n"
                 f"Бот мониторит появление топлива на заправках в заданном радиусе "
                 f"для выбранной геолокации.\n\n")
-        return (head + f"Активируй приглашение командой:\n<code>/invite {code}</code>",
+        return (head + f"Активируйте приглашение командой:\n<code>/invite {code}</code>",
                 "HTML")
 
     if t.startswith("/listusers"):
@@ -528,7 +530,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
         user["await_address"] = False
         if t.lower() in CANCEL_WORDS:
             data["users"][uid] = user
-            return "Хорошо, отменил. Задать место можно кнопкой «🧭 Местоположение»."
+            return "Хорошо, отменил. Указать местоположение можно кнопкой «🧭 Местоположение»."
         if t and not t.startswith("/") and t not in BUTTONS:
             try:
                 lat, lon, name = geocode(t)
@@ -578,9 +580,9 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
 
     if t.startswith("/stats") or t == "stats":
         if user.get("lat") is None or user.get("lon") is None:
-            return ("📊 Сначала задайте место — нажмите «🧭 Местоположение».\n"
+            return ("📊 Сначала задайте местоположение — нажмите «🧭 Местоположение».\n"
                     "После этого я начну собирать данные и смогу показать, "
-                    "когда обычно появляется топливо рядом.")
+                    "в какое время появляется топливо рядом.")
         return user_stats(data_repo, data_token, uid)
 
     if t.startswith("/test") or t == "test":
@@ -592,7 +594,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
             return f"Ошибка отправки: {e}"
 
     if t.startswith("/loc") or t == "loc":
-        return ("Как задать место? Выберите способ:", None, LOC_MENU)
+        return ("Как задать местоположение? Выберите способ:", None, LOC_MENU)
 
     if t.startswith("/notify") or t == "notify":
         enabled = not user.get("enabled", True)
