@@ -224,7 +224,7 @@ def main():
     p.add_argument("--min", type=int, default=1, help="показывать АЗС с >= N появлениями")
     p.add_argument("--user", help="фильтр по user_id (персональный анализ)")
     p.add_argument("--station", help="фильтр по названию/адресу (подстрока)")
-    p.add_argument("--tz", type=int, default=0, help="сдвиг часового пояса, ч (3 = Москва)")
+    p.add_argument("--tz", type=int, default=3, help="сдвиг часового пояса, ч (по умолчанию 3 = Москва)")
     p.add_argument("--hourly", action="store_true", help="гистограмма по часам суток")
     p.add_argument("--md", help="записать полный отчёт в markdown-файл")
     args = p.parse_args()
