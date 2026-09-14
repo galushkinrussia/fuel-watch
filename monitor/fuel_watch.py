@@ -22,6 +22,7 @@ FUELWATCH_RADIUS, FUELWATCH_FUEL, FUELWATCH_TOPIC, FUELWATCH_STATE, FUELWATCH_IN
 """
 
 import argparse
+import datetime
 import json
 import os
 import re
@@ -103,6 +104,16 @@ def station_map_url(s):
     return ""
 
 
+def _fmt_last_at(last_at):
+    """'2026-09-14 06:02:00' (UTC с сайта) -> '09:02' (МСК)."""
+    try:
+        dt = datetime.datetime.strptime(last_at[:19], "%Y-%m-%d %H:%M:%S")
+        dt += datetime.timedelta(hours=3)
+        return dt.strftime("%H:%M")
+    except ValueError:
+        return last_at[11:16] if len(last_at) >= 16 else last_at
+
+
 def build_notification(s, html_mode=False):
     """Текст уведомления о появлении топлива (без дублей марок).
 
@@ -131,10 +142,9 @@ def build_notification(s, html_mode=False):
         lines.append(detail)
     elif fuels:
         lines.append(fuels)
-    last_at = esc((s.get("last_at") or "").strip())
+    last_at = (s.get("last_at") or "").strip()
     if last_at:
-        hhmm = last_at[11:16] if len(last_at) >= 16 else last_at
-        lines.append(f"⏱ отмечено {hhmm}")
+        lines.append(f"⏱ отмечено {esc(_fmt_last_at(last_at))}")
     if map_url:
         if html_mode:
             href = map_url.replace("&", "&amp;")
