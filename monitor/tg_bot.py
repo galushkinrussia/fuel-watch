@@ -65,6 +65,7 @@ HELP_TEXT = (
     "  ❓ Помощь — эта справка\n"
     "\n"
     "Команды:\n"
+    "  /status — мои настройки\n"
     "  /notify — вкл/выкл уведомления\n"
     "  /test — проверить доставку уведомлений\n"
     "  /set — задать радиус и топливо вручную\n"
@@ -77,7 +78,8 @@ ADMIN_HELP = (
     "\n\nАдмин:\n"
     "  /newinvite — создать код приглашения\n"
     "  /listusers — список пользователей\n"
-    "  /broadcast — обновить клавиатуру и меню у всех"
+    "  /broadcast — обновить клавиатуру и меню у всех\n"
+    "  /setup — зарегистрировать команды в меню"
 )
 
 REGISTER_PROMPT = (
@@ -421,8 +423,11 @@ def location_ok(user, place=None):
             place = place[:87] + "…"
         lines.append(f"🧭 Местоположение: {place}")
     lines.append(f"Готово! Слежу за топливом в радиусе {radius:g} км{fuel_str}.")
-    lines.append("Уведомление придёт, когда появится топливо.")
-    lines.append("Настроить — «⚙️ Настройки»")
+    if user.get("enabled", True):
+        lines.append("Уведомление придёт, когда появится топливо.")
+        lines.append("Настроить — «⚙️ Настройки»")
+    else:
+        lines.append("Уведомления выключены — включите в «⚙️ Настройки».")
     return "\n".join(lines)
 
 
@@ -483,9 +488,9 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
         code = new_invite(data)
         head = (f"Приглашаю в бота: @{BOT_USERNAME} "
                 f"(https://t.me/{BOT_USERNAME})\n"
-                f"Бот следит за появлением топлива на АЗС в заданном радиусе "
-                f"для выбранного местоположения.\n\n")
-        return (head + f"Активируйте приглашение командой:\n<code>/invite {code}</code>",
+                f"Он следит за появлением топлива на АЗС рядом с вами "
+                f"и присылает уведомления.\n\n")
+        return (head + f"Подключитесь командой:\n<code>/invite {code}</code>",
                 "HTML")
 
     if t.startswith("/listusers"):
