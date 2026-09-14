@@ -178,10 +178,10 @@ def set_commands(token):
         {"command": "start", "description": "Приветствие"},
         {"command": "invite", "description": "Активировать приглашение"},
         {"command": "loc", "description": "Местоположение"},
-        {"command": "stats", "description": "Анализ появления"},
+        {"command": "stats", "description": "Анализ появления топлива"},
         {"command": "status", "description": "Мои настройки"},
         {"command": "notify", "description": "Вкл/выкл уведомления"},
-        {"command": "set", "description": "Задать настройку"},
+        {"command": "set", "description": "Задать настройки"},
         {"command": "test", "description": "Проверить доставку уведомлений"},
         {"command": "help", "description": "Помощь"},
     ]
@@ -329,7 +329,7 @@ def apply_set(user, key, value):
 def format_user(user):
     """Экран настроек с инлайн-кнопками. Возвращает (text, inline_keyboard)."""
     lat, lon = user.get("lat"), user.get("lon")
-    loc = f"{lat:.4f}, {lon:.4f}" if lat is not None and lon is not None else "не задана"
+    loc = f"{lat:.4f}, {lon:.4f}" if lat is not None and lon is not None else "не задано"
     radius = user.get("radius", 10)
     fuel = user.get("fuel") or []
     enabled = user.get("enabled", True)
@@ -488,7 +488,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
         head = (f"Приглашаю в бота: @{BOT_USERNAME} "
                 f"(https://t.me/{BOT_USERNAME})\n"
                 f"Бот мониторит появление топлива на заправках в заданном радиусе "
-                f"для выбранной геолокации.\n\n")
+                f"для выбранного местоположения.\n\n")
         return (head + f"Активируйте приглашение командой:\n<code>/invite {code}</code>",
                 "HTML")
 
