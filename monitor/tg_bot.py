@@ -388,7 +388,7 @@ def user_stats(data_repo, data_token, user_id):
         return f"Не удалось получить статистику: {e}"
     if not text.strip():
         return ("📊 Пока копим данные для анализа.\n\n"
-                "Монитор собирает историю автоматически (каждые ~15 минут). "
+                "История копится автоматически (каждые ~15 минут). "
                 "Чтобы появились закономерности — в какое время обычно "
                 "появляется топливо — нужно 2–3 дня. Это нормально, "
                 "ничего делать не нужно.\n\n"
@@ -417,16 +417,16 @@ def geocode(query):
 
 
 def location_ok(user, place=None):
-    """Единое подтверждение: местоположение указано, монитор следит."""
+    """Единое подтверждение: местоположение указано, бот следит."""
     radius = user.get("radius", 10)
     fuel = user.get("fuel") or []
-    fuel_str = ("марки " + ", ".join(fuel)) if fuel else "все марки"
+    fuel_str = f" ({', '.join(fuel)})" if fuel else ""
     lines = []
     if place:
         if len(place) > 90:
             place = place[:87] + "…"
         lines.append(f"🧭 Местоположение: {place}")
-    lines.append(f"Готово! Слежу за топливом в радиусе {radius:g} км ({fuel_str}).")
+    lines.append(f"Готово! Слежу за топливом в радиусе {radius:g} км{fuel_str}.")
     lines.append("Уведомление придёт, когда появится топливо.")
     lines.append("Настроить — «⚙️ Настройки»")
     return "\n".join(lines)
@@ -487,7 +487,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
         code = new_invite(data)
         head = (f"Приглашаю в бота: @{BOT_USERNAME} "
                 f"(https://t.me/{BOT_USERNAME})\n"
-                f"Бот мониторит появление топлива на заправках в заданном радиусе "
+                f"Бот следит за появлением топлива на АЗС в заданном радиусе "
                 f"для выбранного местоположения.\n\n")
         return (head + f"Активируйте приглашение командой:\n<code>/invite {code}</code>",
                 "HTML")
