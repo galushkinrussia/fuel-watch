@@ -2,7 +2,7 @@
 """Многопользовательский Telegram-бот для настройки монитора топлива.
 
 Доступ — только по приглашению. Настройки пользователя (координаты, радиус,
-топливо, ntfy-тема) хранятся в users.json в приватном репозитории данных.
+топливо) хранятся в users.json в приватном репозитории данных.
 Монитор (multi_watch.py) обходит всех пользователей и шлёт уведомления.
 
 Команды (пользователь):
@@ -75,8 +75,7 @@ ADMIN_HELP = (
     "\n\nАдмин:\n"
     "  /newinvite — создать код приглашения\n"
     "  /listusers — список пользователей\n"
-    "  /broadcast [текст] — обновить клавиатуру/меню у всех\n"
-    "  /topic — своя ntfy-тема (уведомления админа)"
+    "  /broadcast [текст] — обновить клавиатуру/меню у всех"
 )
 
 REGISTER_PROMPT = (
@@ -250,10 +249,6 @@ def is_admin(user_id, admins):
     return admins and str(user_id) in admins
 
 
-def generate_topic():
-    return "fuelwatch-" + secrets.token_hex(6)
-
-
 def register_user(data, user_id, username):
     uid = str(user_id)
     if uid not in data["users"]:
@@ -263,12 +258,9 @@ def register_user(data, user_id, username):
             "lon": None,
             "radius": 10,
             "fuel": ["92", "95"],
-            "topic": generate_topic(),
             "enabled": True,
             "registered_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
-    elif not data["users"][uid].get("topic"):
-        data["users"][uid]["topic"] = generate_topic()
     return data["users"][uid]
 
 
@@ -569,14 +561,6 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
     if (t.startswith("/status") or t.startswith("/settings")
             or t in ("status", "settings")):
         return format_user(user)
-
-    if t.startswith("/topic") or t == "topic":
-        if admin:
-            topic = user.get("topic") or "(не задана)"
-            return (f"🔔 Ваша ntfy-тема (только для админа):\n{topic}\n\n"
-                    f"Подпишитесь в приложении ntfy или откройте:\n"
-                    f"https://ntfy.sh/{topic}")
-        return "Уведомления приходят в этот чат (Telegram)."
 
     if t.startswith("/stats") or t == "stats":
         if user.get("lat") is None or user.get("lon") is None:

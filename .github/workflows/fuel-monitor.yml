@@ -30,4 +30,5 @@ jobs:
           DATA_PAT: ${{ secrets.DATA_PAT }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ADMIN: ${{ vars.TELEGRAM_ADMIN }}
+          ADMIN_TOPIC: ${{ vars.ADMIN_TOPIC }}
         run: python3 monitor/multi_watch.py once

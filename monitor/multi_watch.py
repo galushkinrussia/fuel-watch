@@ -126,7 +126,7 @@ def _read_local(path):
 
 
 def poll_user(uid, u, state, tg_token=None, sends_buf=None, history_acc=None,
-              admins=None):
+              admins=None, admin_topic=None):
     wanted = u.get("fuel") or []
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     stations, updated = fw.fetch_stations(u["lat"], u["lon"], u.get("radius", 10))
@@ -156,14 +156,16 @@ def poll_user(uid, u, state, tg_token=None, sends_buf=None, history_acc=None,
             tg_text, _ = fw.build_notification(s, html_mode=True)
             # ntfy — только для админа (остальным уведомления идут в Telegram)
             ntfy_ok = False
-            if admins and str(uid) in admins:
+            if admins and str(uid) in admins and admin_topic:
                 try:
-                    fw.send_ntfy(u["topic"], "⛽ Бензин появился", text,
+                    fw.send_ntfy(admin_topic, "⛽ Бензин появился", text,
                                  click=map_url or None)
                     ntfy_ok = True
                     print(f"  -> ntfy ok (админ): {label}")
                 except Exception as e:
                     print(f"  -> ntfy FAIL: {e}")
+            elif admins and str(uid) in admins:
+                print(f"  -> ntfy пропущен (не задана ADMIN_TOPIC): {label}")
             else:
                 print(f"  -> ntfy пропущен (не админ): {label}")
             # Telegram — только если уведомления включены
@@ -191,7 +193,7 @@ def poll_user(uid, u, state, tg_token=None, sends_buf=None, history_acc=None,
 
 
 def poll_all(users_path, state_path, repo=None, token=None, tg_token=None,
-             sends_path=None, history_path=None, admins=None):
+             sends_path=None, history_path=None, admins=None, admin_topic=None):
     users = load_users(users_path, repo=repo, token=token)
     remote = bool(repo and token)
     if remote:
@@ -216,7 +218,7 @@ def poll_all(users_path, state_path, repo=None, token=None, tg_token=None,
         try:
             updated, n = poll_user(uid, u, ustate, tg_token=tg_token,
                                    sends_buf=sends_buf, history_acc=history_acc,
-                                   admins=admins)
+                                   admins=admins, admin_topic=admin_topic)
             print(f"[{time.strftime('%H:%M:%S')}] user {uid}: "
                   f"updated={updated}, станций={n}")
         except Exception as e:
@@ -266,7 +268,8 @@ def cmd_once(args):
     print(f"[{time.strftime('%H:%M:%S')}] хранилище данных: {_storage_note(args)}")
     n = poll_all(args.users, args.state, repo=args.data_repo, token=args.data_token,
                  tg_token=args.telegram_token, sends_path=args.sends,
-                 history_path=args.history, admins=parse_admins(args.admin))
+                 history_path=args.history, admins=parse_admins(args.admin),
+                 admin_topic=args.admin_topic)
     print(f"активных пользователей: {n}")
     return 0
 
@@ -278,7 +281,8 @@ def cmd_loop(args):
         try:
             poll_all(args.users, args.state, repo=args.data_repo, token=args.data_token,
                      tg_token=args.telegram_token, sends_path=args.sends,
-                     history_path=args.history, admins=parse_admins(args.admin))
+                     history_path=args.history, admins=parse_admins(args.admin),
+                     admin_topic=args.admin_topic)
         except Exception as e:
             print(f"ошибка цикла: {e}")
         try:
@@ -299,6 +303,7 @@ def main():
         sp.add_argument("--data-token", help="PAT с правами contents")
         sp.add_argument("--telegram-token", help="токен бота для дубля в Telegram (или TELEGRAM_BOT_TOKEN)")
         sp.add_argument("--admin", help="user_id админа(ов) через запятую — им шлём ntfy (или TELEGRAM_ADMIN)")
+        sp.add_argument("--admin-topic", help="ntfy-тема админа для push (или ADMIN_TOPIC)")
         sp.add_argument("--sends", default=None, help="файл журнала отправок (JSONL)")
         sp.add_argument("--history", default=None, help="файл истории снимков (JSONL)")
 
@@ -328,6 +333,7 @@ def _env_override(args):
     apply("data_token", "DATA_PAT")
     apply("telegram_token", "TELEGRAM_BOT_TOKEN")
     apply("admin", "TELEGRAM_ADMIN")
+    apply("admin_topic", "ADMIN_TOPIC")
     apply("sends", "MULTI_SENDS")
     apply("history", "MULTI_HISTORY")
 
