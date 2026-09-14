@@ -162,6 +162,7 @@ def send_telegram(token, chat_id, text):
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     body = urllib.parse.urlencode({
         "chat_id": chat_id, "text": text,
+        "disable_web_page_preview": "true",
     }).encode("utf-8")
     req = urllib.request.Request(url, data=body, method="POST")
     with urllib.request.urlopen(req, timeout=15) as r:

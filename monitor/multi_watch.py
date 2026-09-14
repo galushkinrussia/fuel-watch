@@ -41,7 +41,7 @@ DEFAULT_USERS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "
 DEFAULT_STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "users_state.json")
 
 
-def send_telegram(token, chat_id, text, parse_mode=None):
+def send_telegram(token, chat_id, text, parse_mode=None, disable_preview=False):
     """Дублирует уведомление в чат пользователя с ботом (chat_id = user_id)."""
     if not token:
         return
@@ -49,6 +49,8 @@ def send_telegram(token, chat_id, text, parse_mode=None):
     params = {"chat_id": chat_id, "text": text}
     if parse_mode:
         params["parse_mode"] = parse_mode
+    if disable_preview:
+        params["disable_web_page_preview"] = "true"
     data = urllib.parse.urlencode(params).encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST")
     with urllib.request.urlopen(req, timeout=20) as r:
@@ -169,7 +171,7 @@ def poll_user(uid, u, state, tg_token=None, sends_buf=None, history_acc=None,
             if tg_token and u.get("enabled", True):
                 try:
                     send_telegram(tg_token, uid, "⛽ Бензин появился\n\n" + tg_text,
-                                  parse_mode="HTML")
+                                  parse_mode="HTML", disable_preview=True)
                     telegram_ok = True
                     print(f"  -> telegram ok: {label}")
                 except Exception as e:
