@@ -210,10 +210,9 @@ def build_digest(recs, results, tz=3):
             lines.append(f"  • {_station_line(r)} — "
                          f"{len(r['deliveries'])} "
                          f"{plural_form(len(r['deliveries']), 'раз', 'раза', 'раз')} в {times}")
-
-    if len(days) < 3 or total < 10:
-        lines.append("")
-        lines.append("⚠️ Данных пока мало — картина станет точнее через 2–3 дня.")
+        if len(days) < 3 or total < 10:
+            lines.append("")
+            lines.append("⚠️ Данных пока мало — картина станет точнее через 2–3 дня.")
     return "\n".join(lines)
 
 

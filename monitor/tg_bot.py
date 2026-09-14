@@ -374,7 +374,22 @@ def apply_callback(user, cb_data):
     return ""
 
 
-def user_stats(data_repo, data_token, user_id):
+def user_tz(user):
+    """Часовой пояс пользователя по координатам (для России — по регионам)."""
+    lon = user.get("lon")
+    lat = user.get("lat")
+    if lon is None:
+        return 3
+    if lat is not None and 41 <= lat <= 82 and 19 <= lon <= 191:
+        for edge, off in ((22, 2), (50, 3), (58, 4), (68, 5), (78, 6),
+                          (90, 7), (105, 8), (125, 9), (140, 10), (155, 11)):
+            if lon < edge:
+                return off
+        return 12
+    return max(-12, min(14, int(lon / 15 + (0.5 if lon >= 0 else -0.5))))
+
+
+def user_stats(data_repo, data_token, user_id, tz=3):
     """Персональный анализ появления топлива по истории пользователя."""
     if not (data_repo and data_token):
         return "Анализ доступен только в облачном режиме."
@@ -396,7 +411,7 @@ def user_stats(data_repo, data_token, user_id):
                 "История копится автоматически, обычно нужно 2–3 дня. "
                 "Загляните позже — тогда покажу, когда обычно появляется топливо "
                 "рядом с вами.")
-    return az.build_digest(mine, az.analyze(mine), tz=3)
+    return az.build_digest(mine, az.analyze(mine), tz=tz)
 
 
 def geocode(query):
@@ -576,7 +591,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
             return ("📊 Сначала укажите местоположение — нажмите «🧭 Местоположение».\n"
                     "После этого я начну собирать данные и смогу показать, "
                     "в какое время появляется топливо рядом.")
-        return user_stats(data_repo, data_token, uid)
+        return user_stats(data_repo, data_token, uid, tz=user_tz(user))
 
     if t.startswith("/test") or t == "test":
         try:

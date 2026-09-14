@@ -131,6 +131,10 @@ def build_notification(s, html_mode=False):
         lines.append(detail)
     elif fuels:
         lines.append(fuels)
+    last_at = esc((s.get("last_at") or "").strip())
+    if last_at:
+        hhmm = last_at[11:16] if len(last_at) >= 16 else last_at
+        lines.append(f"⏱ отмечено {hhmm}")
     if map_url:
         if html_mode:
             href = map_url.replace("&", "&amp;")
