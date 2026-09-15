@@ -32,6 +32,7 @@ import json
 import os
 import re
 import secrets
+import socket
 import sys
 import time
 import urllib.parse
@@ -39,6 +40,19 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import data_store as ds
+
+# На части VPS IPv6 объявлен, но нерабочий (Errno 99: Cannot assign requested
+# address). Предпочитаем IPv4, если он доступен.
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _getaddrinfo_prefer_ipv4(host, port, family=0, type=0, proto=0, flags=0):
+    infos = _orig_getaddrinfo(host, port, family, type, proto, flags)
+    v4 = [i for i in infos if i[0] == socket.AF_INET]
+    return v4 or infos
+
+
+socket.getaddrinfo = _getaddrinfo_prefer_ipv4
 
 TG_API = "https://api.telegram.org"
 BOT_USERNAME = "give_me_fuel_give_me_fire_bot"
@@ -719,10 +733,20 @@ def _load_offset(state_file, repo=None, token=None):
 def _save_offset(state_file, offset, sha=None, repo=None, token=None):
     payload = {"offset": offset, "updated": time.strftime("%Y-%m-%d %H:%M:%S")}
     if repo and token:
+        path = _repo_path(state_file)
         try:
-            return ds.save_json(repo, _repo_path(state_file), token, payload, sha,
+            return ds.save_json(repo, path, token, payload, sha,
                                 message="состояние бота")
         except Exception as e:
+            if "409" in str(e):
+                # Файл изменился извне (другой процесс/устройство) — перечитываем
+                # sha и пробуем ещё раз.
+                try:
+                    _, sha = ds.load_json(repo, path, token, default={})
+                    return ds.save_json(repo, path, token, payload, sha,
+                                        message="состояние бота")
+                except Exception as e2:
+                    e = e2
             print(f"  -> save offset FAIL: {e}")
             return sha
     save_state(state_file, payload)
