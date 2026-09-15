@@ -104,14 +104,22 @@ REGISTER_PROMPT = (
 
 # --- Telegram API -----------------------------------------------------------
 
-def _tg(method, token, params=None, timeout=25):
+def _tg(method, token, params=None, timeout=25, attempts=3):
     url = f"{TG_API}/bot{token}/{method}"
     data = None
     if params:
         data = urllib.parse.urlencode(params).encode("utf-8")
-    req = urllib.request.Request(url, data=data, method="POST")
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode("utf-8"))
+    last = None
+    for i in range(attempts):
+        try:
+            req = urllib.request.Request(url, data=data, method="POST")
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except Exception as e:
+            last = e
+            if i + 1 < attempts:
+                time.sleep(2 * (i + 1))
+    raise last
 
 
 def get_updates(token, offset=None, timeout=0):
