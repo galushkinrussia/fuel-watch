@@ -511,8 +511,7 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
         if not admin:
             return "Недостаточно прав."
         code = new_invite(data)
-        head = (f"Приглашаю в бота: @{BOT_USERNAME} "
-                f"(https://t.me/{BOT_USERNAME})\n"
+        head = (f"Приглашаю в бота: @{BOT_USERNAME}\n"
                 f"Он следит за появлением топлива на АЗС рядом с вами "
                 f"и присылает уведомления.\n\n")
         return (head + f"Подключитесь командой:\n<code>/invite {code}</code>",
