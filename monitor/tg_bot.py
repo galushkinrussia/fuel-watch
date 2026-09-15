@@ -170,21 +170,16 @@ MAIN_KEYBOARD = {
     "resize_keyboard": True,
 }
 
-# одноразовая клавиатура «📤 Отправить местоположение»
-REQUEST_LOCATION_KEYBOARD = {
-    "keyboard": [[{"text": "📤 Отправить местоположение", "request_location": True}]],
+# меню способов указать местоположение. Первая кнопка — настоящая кнопка
+# геолокации (request_location): инлайн-кнопки так не умеют, поэтому меню
+# сделано reply-клавиатурой — место указывается за один шаг.
+LOC_KEYBOARD = {
+    "keyboard": [
+        [{"text": "📍 Отправить текущую геолокацию", "request_location": True}],
+        [{"text": "🗺 Указать точку на карте"}, {"text": "✍️ Ввести адрес вручную"}],
+        [{"text": "❌ Отмена"}],
+    ],
     "resize_keyboard": True,
-    "one_time_keyboard": True,
-}
-
-# меню способов указать местоположение
-LOC_MENU = {
-    "inline_keyboard": [
-        [{"text": "📍 Отправить текущую геолокацию", "callback_data": "loc:current"}],
-        [{"text": "🗺 Указать точку на карте", "callback_data": "loc:map"}],
-        [{"text": "✍️ Ввести адрес вручную", "callback_data": "loc:text"}],
-        [{"text": "❌ Отмена", "callback_data": "loc:cancel"}],
-    ]
 }
 
 HISTORY_FILE = "history.jsonl"
@@ -195,6 +190,9 @@ BUTTONS = {
     "📊 Анализ": "stats",
     "⚙️ Настройки": "settings",
     "❓ Помощь": "help",
+    "🗺 Указать точку на карте": "loc:map",
+    "✍️ Ввести адрес вручную": "loc:text",
+    "❌ Отмена": "loc:cancel",
 }
 
 
@@ -613,8 +611,24 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
         except Exception as e:
             return f"Ошибка отправки: {e}"
 
+    if t.startswith("/loc:map"):
+        return ("Выбор на карте: нажмите скрепку 📎 → «Геопозиция» → "
+                "«Выбрать на карте», поставьте точку и отправьте.")
+
+    if t.startswith("/loc:text"):
+        user["await_address"] = True
+        data["users"][uid] = user
+        return ("Пришлите город или адрес текстом, например: «Волгоград, центр». "
+                "Чтобы отменить — напишите «отмена».")
+
+    if t.startswith("/loc:cancel"):
+        user.pop("await_address", None)
+        user.pop("await_radius", None)
+        data["users"][uid] = user
+        return "Хорошо, отменил."
+
     if t.startswith("/loc") or t == "loc":
-        return ("Как указать местоположение? Выберите способ:", None, LOC_MENU)
+        return ("Как указать местоположение? Выберите способ:", None, LOC_KEYBOARD)
 
     if t.startswith("/notify") or t == "notify":
         enabled = not user.get("enabled", True)
@@ -659,32 +673,6 @@ def process_update(update, token, admins, data, users_path,
         print(f"[{time.strftime('%H:%M:%S')}] callback от {from_id}: {cb_data!r}")
         if not user:
             answer_callback(token, cid, "Сначала зарегистрируйтесь")
-            return
-        if cb_data.startswith("loc:"):
-            if cb_data == "loc:current":
-                answer_callback(token, cid, "Отправьте местоположение")
-                send_message(token, chat_id, "Нажмите кнопку ниже, чтобы "
-                             "отправить местоположение.",
-                             reply_markup=REQUEST_LOCATION_KEYBOARD)
-            elif cb_data == "loc:map":
-                answer_callback(token, cid, "")
-                send_message(token, chat_id,
-                             "Выбор на карте: нажмите скрепку 📎 → «Геопозиция» → "
-                             "«Выбрать на карте», поставьте точку и отправьте.")
-            elif cb_data == "loc:text":
-                user["await_address"] = True
-                data["users"][uid] = user
-                answer_callback(token, cid, "")
-                send_message(token, chat_id,
-                             "Пришлите город или адрес текстом, например: "
-                             "«Волгоград, центр». Чтобы отменить — напишите «отмена».")
-            elif cb_data == "loc:cancel":
-                user.pop("await_address", None)
-                user.pop("await_radius", None)
-                data["users"][uid] = user
-                answer_callback(token, cid, "Отменено")
-                send_message(token, chat_id, "Хорошо, отменил.",
-                             reply_markup=MAIN_KEYBOARD)
             return
         if cb_data == "r:custom":
             user["await_radius"] = True
