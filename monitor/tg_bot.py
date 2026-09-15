@@ -645,7 +645,6 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
 def process_update(update, token, admins, data, users_path,
                    data_repo=None, data_token=None):
     """Обрабатывает одно обновление (текст, геолокацию или нажатие кнопки)."""
-    t_start = time.time()
     # --- нажатие инлайн-кнопки ---
     cb = update.get("callback_query")
     if cb:
@@ -694,13 +693,11 @@ def process_update(update, token, admins, data, users_path,
             send_message(token, chat_id, "Пришлите радиус в километрах, например: 12. "
                          "Чтобы отменить — напишите «отмена».")
             return
-        t_cb = time.time()
         toast = apply_callback(user, cb_data)
         data["users"][uid] = user
         answer_callback(token, cid, toast)
         text, _, keyboard = format_user(user)
         edit_message(token, chat_id, message_id, text, reply_markup=keyboard)
-        print(f"  -> callback обработан за {time.time() - t_cb:.2f}s")
         return
 
     text, chat_id, user_id, username, location = extract_message(update)
@@ -726,12 +723,9 @@ def process_update(update, token, admins, data, users_path,
         reply_markup = inline
     elif str(user_id) in data.get("users", {}):
         reply_markup = MAIN_KEYBOARD
-    t_send = time.time()
     try:
         send_message(token, chat_id, reply, reply_markup=reply_markup,
                      parse_mode=parse_mode)
-        print(f"  -> ответ отправлен: обработка {t_send - t_start:.2f}s, "
-              f"отправка {time.time() - t_send:.2f}s")
     except Exception as e:
         print(f"  -> send FAIL: {e}")
 
@@ -810,11 +804,7 @@ def cmd_loop(args):
     while True:
         data, users_sha = load_users(args.users, repo=args.data_repo, token=args.data_token)
         try:
-            t_poll = time.time()
             updates = get_updates(args.token, offset=offset, timeout=0)
-            if updates:
-                print(f"  <- getUpdates: {time.time() - t_poll:.1f}s, "
-                      f"апдейтов: {len(updates)}")
             for u in updates:
                 process_update(u, args.token, admins, data, args.users,
                                args.data_repo, args.data_token)
