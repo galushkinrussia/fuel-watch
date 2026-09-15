@@ -15,10 +15,16 @@
 
 import base64
 import json
+import os
 import urllib.error
 import urllib.request
 
 GH_API = "https://api.github.com"
+
+
+def _repo_path(path):
+    """Имя файла в корне репозитория данных (локальный путь может быть абсолютным)."""
+    return os.path.basename(str(path).replace("\\", "/"))
 
 
 def _gh(method, url, token, body=None, timeout=30):
@@ -47,7 +53,7 @@ def _gh(method, url, token, body=None, timeout=30):
 
 def _fetch_contents(repo, path, token):
     """GET contents. Возвращает resp (dict) или None, если файла нет."""
-    url = f"{GH_API}/repos/{repo}/contents/{path}"
+    url = f"{GH_API}/repos/{repo}/contents/{_repo_path(path)}"
     try:
         return _gh("GET", url, token)
     except RuntimeError as e:
@@ -65,7 +71,7 @@ def _content_text(repo, path, token, resp):
     raw = resp.get("content", "")
     if raw:
         return base64.b64decode(raw.replace("\n", "")).decode("utf-8")
-    url = f"{GH_API}/repos/{repo}/contents/{path}"
+    url = f"{GH_API}/repos/{repo}/contents/{_repo_path(path)}"
     req = urllib.request.Request(url, headers={
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github.raw",
@@ -101,7 +107,7 @@ def save_json(repo, path, token, data, sha=None, message="update"):
     body = {"message": message, "content": content}
     if sha:
         body["sha"] = sha
-    url = f"{GH_API}/repos/{repo}/contents/{path}"
+    url = f"{GH_API}/repos/{repo}/contents/{_repo_path(path)}"
     resp = _gh("PUT", url, token, body)
     return resp.get("content", {}).get("sha")
 
@@ -112,6 +118,6 @@ def save_text(repo, path, token, text, sha=None, message="update"):
     body = {"message": message, "content": content}
     if sha:
         body["sha"] = sha
-    url = f"{GH_API}/repos/{repo}/contents/{path}"
+    url = f"{GH_API}/repos/{repo}/contents/{_repo_path(path)}"
     resp = _gh("PUT", url, token, body)
     return resp.get("content", {}).get("sha")

@@ -193,11 +193,16 @@ def set_commands(token):
 
 # --- Хранилище users.json ---------------------------------------------------
 
+def _repo_path(path):
+    """Имя файла внутри репозитория данных (локальный путь может быть абсолютным)."""
+    return os.path.basename(str(path).replace("\\", "/"))
+
+
 def load_users(path, repo=None, token=None):
     """Возвращает (data, sha). Из приватного репо (repo+token) или локально."""
     if repo and token:
         try:
-            return ds.load_json(repo, path, token,
+            return ds.load_json(repo, _repo_path(path), token,
                                 default={"invites": {}, "users": {}})
         except Exception as e:
             print(f"Не удалось прочитать users.json из {repo}: {e}")
@@ -214,7 +219,7 @@ def load_users(path, repo=None, token=None):
 def save_users(path, data, sha, repo=None, token=None, message="обновление пользователей"):
     """Сохраняет users.json. Возвращает новый sha (или None для локального)."""
     if repo and token:
-        return ds.save_json(repo, path, token, data, sha, message=message)
+        return ds.save_json(repo, _repo_path(path), token, data, sha, message=message)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     return None
@@ -706,7 +711,7 @@ def process_update(update, token, admins, data, users_path,
 def _load_offset(state_file, repo=None, token=None):
     """Читает offset: из приватного репо (repo+token) или локально. → (offset, sha)."""
     if repo and token:
-        data, sha = ds.load_json(repo, state_file, token, default={})
+        data, sha = ds.load_json(repo, _repo_path(state_file), token, default={})
         return data.get("offset"), sha
     return load_state(state_file).get("offset"), None
 
@@ -715,7 +720,7 @@ def _save_offset(state_file, offset, sha=None, repo=None, token=None):
     payload = {"offset": offset, "updated": time.strftime("%Y-%m-%d %H:%M:%S")}
     if repo and token:
         try:
-            return ds.save_json(repo, state_file, token, payload, sha,
+            return ds.save_json(repo, _repo_path(state_file), token, payload, sha,
                                 message="состояние бота")
         except Exception as e:
             print(f"  -> save offset FAIL: {e}")
