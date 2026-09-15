@@ -809,7 +809,7 @@ def cmd_loop(args):
         data, users_sha = load_users(args.users, repo=args.data_repo, token=args.data_token)
         try:
             t_poll = time.time()
-            updates = get_updates(args.token, offset=offset, timeout=10)
+            updates = get_updates(args.token, offset=offset, timeout=0)
             if updates:
                 print(f"  <- getUpdates: {time.time() - t_poll:.1f}s, "
                       f"апдейтов: {len(updates)}")
@@ -822,6 +822,8 @@ def cmd_loop(args):
                 offset = max(u["update_id"] for u in updates) + 1
                 state_sha = _save_offset(args.state, offset, state_sha,
                                          args.data_repo, args.data_token)
+            else:
+                time.sleep(1)
         except KeyboardInterrupt:
             break
         except Exception as e:
