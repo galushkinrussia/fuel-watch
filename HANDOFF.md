@@ -1,6 +1,6 @@
 # FuelWatch — статус проекта (handoff)
 
-Обновлено: 13 сентября 2026
+Обновлено: 15 сентября 2026
 Проект: **многопользовательский** монитор появления топлива и городского чата
 водителей (данные `gdebenz.ru`) с Telegram-ботом для настройки.
 
@@ -8,7 +8,8 @@
 
 ## 1. Что это теперь
 
-Сервис на несколько пользователей, работающий 24/7 в облаке (GitHub Actions).
+Сервис на несколько пользователей, работающий 24/7: монитор АЗС и сводка чата —
+в облаке (GitHub Actions), Telegram-бот — на VPS (постоянный процесс).
 Пользователи получают уведомления **в Telegram**; служба **ntfy** задействована
 только **админом**. Доступ к боту — **по приглашению**. Публичный репозиторий
 содержит **только код**; все данные — в отдельном **приватном** репозитории.
@@ -49,8 +50,10 @@ GitHub по расписанию (`workflow_dispatch`).
 |---|---|---|
 | `fuel-monitor` | `multi_watch.py once` — опрос всех пользователей | 15 мин |
 | `chat-monitor` | `chat_watch.py once` — сводка чата | час |
-| `tg-bot-config` | `tg_bot.py once` — обработка команд бота | ~1 мин |
 | `migrate-data` | разовый перенос старых данных | однократно |
+
+Workflow `tg-bot-config` (обработка команд бота) **отключён** — бот переехал на
+VPS (постоянный `loop`-процесс), чтобы не было двух поллеров Telegram.
 
 В cron-job.org для каждого workflow создаётся задание **POST** на:
 ```
@@ -133,6 +136,16 @@ https://api.github.com/repos/<ЛОГИН>/<РЕПО>/actions/workflows/<workflow
 > Telegram. Тема админа задаётся переменной `ADMIN_TOPIC`; бот про ntfy ничего
 > не знает.
 
+**Развёртывание бота:** на VPS — systemd-сервис `fuelwatch-bot`
+(`python3 -u monitor/tg_bot.py loop`, `EnvironmentFile=/root/fuel-watch/.env`,
+`Restart=always`) плюс таймер `fuelwatch-update.timer` (раз в 5 мин делает
+`git pull` и перезапускает бота при изменениях). Настройка таймера — одной
+строкой:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/galushkinrussia/fuel-watch/main/scripts/setup_autoupdate.sh | bash
+```
+
 ---
 
 ## 7. Команды (CLI)
@@ -167,7 +180,8 @@ python3 monitor/analyze.py --data-repo owner/repo --data-token <PAT> --md analys
 ## 8. Файлы (что где)
 
 - `.github/workflows/` — `fuel-monitor.yml`, `chat-monitor.yml`,
-  `tg-bot-config.yml`, `migrate-data.yml`.
+  `tg-bot-config.yml` (отключён), `migrate-data.yml`.
+- `scripts/setup_autoupdate.sh` — настройка автоподтягивания бота на VPS.
 - `monitor/` — `multi_watch.py`, `tg_bot.py`, `data_store.py`, `chat_watch.py`,
   `analyze.py`, `fuel_watch.py`, `migrate_data.py`, `config.example.json`.
 - `analysis/ANALYSIS.md` — краткий разбор для публикации;

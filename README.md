@@ -12,7 +12,8 @@
 | `monitor/analyze.py` | анализ накопленной истории — время появления топлива по АЗС |
 | `android/` (Kotlin) | автономное приложение, опрашивает API прямо на телефоне (без бэкенда) |
 
-Работает 24/7 в облаке (GitHub Actions). Пользователи получают уведомления
+Работает 24/7: монитор АЗС и сводка чата — в облаке (GitHub Actions),
+Telegram-бот — на VPS (постоянный процесс). Пользователи получают уведомления
 **в Telegram**; ntfy используется только **админом**.
 
 ---
@@ -120,8 +121,9 @@ python3 monitor/analyze.py --history history.jsonl --tz 3 --hourly   # врем�
 
 ## 4. Облако (GitHub Actions)
 
-Монитор крутится на GitHub бесплатно; пользователям уведомления идут в Telegram,
-админу — ещё и в ntfy.
+Монитор АЗС и сводка чата крутятся на GitHub бесплатно; пользователям
+уведомления идут в Telegram, админу — ещё и в ntfy. **Telegram-бот живёт на
+отдельном VPS** (см. §5) — ему нужна мгновенная отзывчивость.
 
 ### Как устроен запуск
 
@@ -132,7 +134,7 @@ Workflow запускаются **только вручную** (`workflow_dispa
 
 - `fuel-monitor` — многопользовательский опрос АЗС, раз в 15 мин.
 - `chat-monitor` — сводка чата, раз в час.
-- `tg-bot-config` — обработка команд Telegram-бота, раз в ~1 мин.
+- `tg-bot-config` — **отключён** (бот переехал на VPS, чтобы не было двух поллеров).
 
 Для каждого в cron-job.org создаётся задание POST на:
 `https://api.github.com/repos/<ЛОГИН>/<РЕПО>/actions/workflows/<workflow>.yml/dispatches`
@@ -190,7 +192,7 @@ Workflow запускаются **только вручную** (`workflow_dispa
 
 Кнопки (появляются после регистрации):
 ```
-🧭 Местоположение   — выбрать способ (отправить автоматически / на карте / адрес)
+🧭 Местоположение   — выбрать способ (текущая геолокация / карта / адрес)
 📊 Анализ       — когда обычно бывает топливо (персонально)
 ⚙️ Настройки    — радиус и топливо (инлайн-кнопки)
 ❓ Помощь
@@ -232,12 +234,28 @@ Workflow запускаются **только вручную** (`workflow_dispa
 
 ### Запуск
 
-- **Облако** (как остальное): создайте в cron-job.org задание POST на
-  `.../actions/workflows/tg-bot-config.yml/dispatches` (интервал ~1 мин).
-- **Локально/VPS** (постоянный процесс):
+Бот работает **на VPS** постоянным процессом (systemd) — ответы приходят
+мгновенно, без задержки облака.
+
+1. Склонировать репозиторий и задать секреты в `/root/fuel-watch/.env`
+   (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_ADMIN`, `DATA_REPO`, `DATA_PAT`).
+2. Создать сервис `fuelwatch-bot` (systemd): `ExecStart=python3 -u monitor/tg_bot.py loop`,
+   `EnvironmentFile=/root/fuel-watch/.env`, `Restart=always`.
+3. Включить автоподтягивание изменений одной строкой:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/galushkinrussia/fuel-watch/main/scripts/setup_autoupdate.sh | bash
+   ```
+
+Таймер `fuelwatch-update.timer` каждые 5 минут делает `git pull` и перезапускает
+бота при изменениях.
+
+- **Локально** (без systemd):
   ```bash
   python3 monitor/tg_bot.py loop --token <токен> --admin <user_id>
   ```
+
+> Workflow `tg-bot-config` (cron-job.org, ~1 мин) **отключён** — чтобы не было
+> двух поллеров Telegram одновременно.
 
 ---
 
