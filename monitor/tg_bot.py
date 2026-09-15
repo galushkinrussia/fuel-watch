@@ -694,11 +694,13 @@ def process_update(update, token, admins, data, users_path,
             send_message(token, chat_id, "Пришлите радиус в километрах, например: 12. "
                          "Чтобы отменить — напишите «отмена».")
             return
+        t_cb = time.time()
         toast = apply_callback(user, cb_data)
         data["users"][uid] = user
         answer_callback(token, cid, toast)
         text, _, keyboard = format_user(user)
         edit_message(token, chat_id, message_id, text, reply_markup=keyboard)
+        print(f"  -> callback обработан за {time.time() - t_cb:.2f}s")
         return
 
     text, chat_id, user_id, username, location = extract_message(update)
