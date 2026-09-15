@@ -104,7 +104,7 @@ REGISTER_PROMPT = (
 
 # --- Telegram API -----------------------------------------------------------
 
-def _tg(method, token, params=None, timeout=25, attempts=3):
+def _tg(method, token, params=None, timeout=8, attempts=4):
     url = f"{TG_API}/bot{token}/{method}"
     data = None
     if params:
