@@ -127,7 +127,7 @@ def get_updates(token, offset=None, timeout=0):
               "allowed_updates": json.dumps(["message", "callback_query"])}
     if offset is not None:
         params["offset"] = offset
-    return _tg("getUpdates", token, params, timeout=timeout + 20).get("result", [])
+    return _tg("getUpdates", token, params, timeout=timeout + 10).get("result", [])
 
 
 def send_message(token, chat_id, text, reply_markup=None, parse_mode=None):
@@ -809,7 +809,7 @@ def cmd_loop(args):
         data, users_sha = load_users(args.users, repo=args.data_repo, token=args.data_token)
         try:
             t_poll = time.time()
-            updates = get_updates(args.token, offset=offset, timeout=30)
+            updates = get_updates(args.token, offset=offset, timeout=10)
             if updates:
                 print(f"  <- getUpdates: {time.time() - t_poll:.1f}s, "
                       f"апдейтов: {len(updates)}")
