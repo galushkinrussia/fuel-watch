@@ -16,6 +16,7 @@
 import base64
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 
@@ -27,7 +28,7 @@ def _repo_path(path):
     return os.path.basename(str(path).replace("\\", "/"))
 
 
-def _gh(method, url, token, body=None, timeout=30):
+def _gh(method, url, token, body=None, timeout=8, attempts=3):
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
@@ -37,18 +38,25 @@ def _gh(method, url, token, body=None, timeout=30):
     if body is not None:
         data = json.dumps(body).encode("utf-8")
         headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            raw = r.read().decode("utf-8")
-            return json.loads(raw) if raw else {}
-    except urllib.error.HTTPError as e:
-        detail = ""
+    last = None
+    for i in range(attempts):
         try:
-            detail = e.read().decode("utf-8")[:400]
-        except Exception:
-            pass
-        raise RuntimeError(f"GitHub API {e.code} {e.reason}: {detail}") from None
+            req = urllib.request.Request(url, data=data, headers=headers, method=method)
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                raw = r.read().decode("utf-8")
+                return json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as e:
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8")[:400]
+            except Exception:
+                pass
+            raise RuntimeError(f"GitHub API {e.code} {e.reason}: {detail}") from None
+        except Exception as e:
+            last = e
+            if i + 1 < attempts:
+                time.sleep(2 * (i + 1))
+    raise last
 
 
 def _fetch_contents(repo, path, token):
