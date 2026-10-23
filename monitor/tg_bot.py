@@ -40,6 +40,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import data_store as ds
+import fuel_watch as fw
 
 # На части VPS IPv6 объявлен, но нерабочий (Errno 99: Cannot assign requested
 # address). Предпочитаем IPv4, если он доступен.
@@ -541,6 +542,42 @@ def handle_command(text, chat_id, user_id, username, admins, token, data, users_
             except Exception as e:
                 print(f"  -> broadcast FAIL {uid2}: {e}")
         return f"Разослано {n} пользователям, меню команд обновлено."
+
+    if t.startswith("/sendfuel"):
+        if not admin:
+            return "Недостаточно прав."
+        parts = t.split()
+        if len(parts) < 2:
+            return "Формат: /sendfuel <user_id>"
+        target = parts[1]
+        tu = data["users"].get(target)
+        if not tu or tu.get("lat") is None or tu.get("lon") is None:
+            return "Пользователь не найден или без координат."
+        try:
+            stations, _ = fw.fetch_stations(tu["lat"], tu["lon"], tu.get("radius", 10))
+        except Exception as e:
+            return f"Не удалось получить станции: {e}"
+        wanted = tu.get("fuel") or []
+        avail = [s for s in stations if fw.station_available(s, wanted)]
+        if not avail:
+            return "Сейчас рядом нет станций с нужным топливом."
+        lines = ["⛽ Сейчас есть топливо рядом:"]
+        for s in avail:
+            label = fw.station_label(s)
+            dist = s.get("distance_km")
+            if isinstance(dist, (int, float)):
+                label += f" · {dist:.1f} км"
+            fuels = ", ".join(sorted(fw.station_fuels(s))) or "?"
+            detail = (s.get("detail") or "").strip()
+            line = f"• {label} — {fuels}"
+            if detail:
+                line += f" · {detail}"
+            lines.append(line)
+        try:
+            send_message(token, target, "\n".join(lines))
+        except Exception as e:
+            return f"Не удалось отправить пользователю {target}: {e}"
+        return f"Отправлено {len(avail)} станций пользователю {target}."
 
     # --- пользовательские команды (нужна регистрация) ---
     if not registered:
