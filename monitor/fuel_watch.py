@@ -180,7 +180,9 @@ def send_telegram(token, chat_id, text):
     }).encode("utf-8")
     req = urllib.request.Request(url, data=body, method="POST")
     with urllib.request.urlopen(req, timeout=15) as r:
-        r.read()
+        resp = json.loads(r.read().decode("utf-8"))
+    if not resp.get("ok"):
+        raise RuntimeError(f"Telegram {resp.get('error_code')}: {resp.get('description')}")
 
 
 class Monitor:

@@ -42,7 +42,11 @@ DEFAULT_STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "
 
 
 def send_telegram(token, chat_id, text, parse_mode=None, disable_preview=False):
-    """Дублирует уведомление в чат пользователя с ботом (chat_id = user_id)."""
+    """Дублирует уведомление в чат пользователя с ботом (chat_id = user_id).
+
+    Поднимает ошибку, если Telegram ответил ok=false (например, бот заблокирован
+    или чат не найден) — иначе неудача отправки терялась бы молча.
+    """
     if not token:
         return
     url = f"{TG_API}/bot{token}/sendMessage"
@@ -54,7 +58,9 @@ def send_telegram(token, chat_id, text, parse_mode=None, disable_preview=False):
     data = urllib.parse.urlencode(params).encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST")
     with urllib.request.urlopen(req, timeout=20) as r:
-        r.read()
+        body = json.loads(r.read().decode("utf-8"))
+    if not body.get("ok"):
+        raise RuntimeError(f"Telegram {body.get('error_code')}: {body.get('description')}")
 
 
 def load_users(path, repo=None, token=None):
